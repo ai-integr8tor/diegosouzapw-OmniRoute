@@ -144,7 +144,14 @@ const REQUIRED_FIELDS_BY_PROVIDER = {
   windsurf: ["authorizeUrl", "apiServerUrl", "exchangePath", "inferenceUrl"],
   "devin-cli": ["authorizeUrl", "apiServerUrl", "exchangePath", "inferenceUrl"],
   trae: ["apiEndpoint", "chatEndpoint", "webUrl"],
-  "zed-hosted": ["webBaseUrl", "cloudBaseUrl", "llmBaseUrl", "userInfoUrl", "llmTokenUrl", "modelsUrl"],
+  "zed-hosted": [
+    "webBaseUrl",
+    "cloudBaseUrl",
+    "llmBaseUrl",
+    "userInfoUrl",
+    "llmTokenUrl",
+    "modelsUrl",
+  ],
 };
 
 function getByPath(object, path) {
@@ -351,7 +358,10 @@ test("zed-hosted buildAuthUrl returns {authUrl, codeVerifier, redirectUri} carry
 
 test("generateAuthData honors an object-returning buildAuthUrl (zed-hosted) without breaking string-returning providers", async () => {
   const oauthHelpers = await import("../../src/lib/oauth/providers.ts");
-  const zedAuthData = oauthHelpers.generateAuthData("zed-hosted", "http://localhost:20128/callback");
+  const zedAuthData = oauthHelpers.generateAuthData(
+    "zed-hosted",
+    "http://localhost:20128/callback"
+  );
   assert.equal(zedAuthData.flowType, "authorization_code");
   assert.ok(zedAuthData.authUrl.startsWith("https://zed.dev/native_app_signin?"));
   assert.ok(zedAuthData.codeVerifier.startsWith("zed-rsa-pkcs1:"));
@@ -551,8 +561,11 @@ test("Antigravity runs mocked browser OAuth exchanges and post-exchange enrichme
     (_url, init: any = {}) => {
       assert.equal(init.method, "POST");
       assert.equal(init.headers.Authorization, "Bearer anti-access");
-      assert.match(init.headers["User-Agent"], /^vscode\/1\.X\.X \(Antigravity\//);
-      assert.equal(init.headers["X-Goog-Api-Client"], undefined);
+      assert.match(
+        init.headers["User-Agent"],
+        /^antigravity\/2\.1\.1 [^ ]+\/[^ ]+ google-api-nodejs-client\/10\.3\.0$/
+      );
+      assert.equal(init.headers["X-Goog-Api-Client"], "gl-node/22.21.1");
       assert.deepEqual(
         JSON.parse(String(init.body)).metadata,
         getAntigravityLoadCodeAssistMetadata()
@@ -566,8 +579,11 @@ test("Antigravity runs mocked browser OAuth exchanges and post-exchange enrichme
     (_url, init: any = {}) => {
       assert.equal(init.method, "POST");
       assert.equal(init.headers.Authorization, "Bearer anti-access");
-      assert.match(init.headers["User-Agent"], /^vscode\/1\.X\.X \(Antigravity\//);
-      assert.equal(init.headers["X-Goog-Api-Client"], undefined);
+      assert.match(
+        init.headers["User-Agent"],
+        /^antigravity\/2\.1\.1 [^ ]+\/[^ ]+ google-api-nodejs-client\/10\.3\.0$/
+      );
+      assert.equal(init.headers["X-Goog-Api-Client"], "gl-node/22.21.1");
       assert.deepEqual(
         JSON.parse(String(init.body)).metadata,
         getAntigravityLoadCodeAssistMetadata()
@@ -599,6 +615,7 @@ test("Antigravity runs mocked browser OAuth exchanges and post-exchange enrichme
   // no longer updates the returned projectId synchronously — matching the 9router web
   // flow, which also returns the loadCodeAssist project id.
   assert.equal(antigravityMapped.projectId, "anti-project");
+  assert.equal(antigravityMapped.providerSpecificData.clientProfile, "ide");
 });
 
 test("Qoder enabled mode exchanges tokens and loads profile metadata through mocked endpoints", async () => {

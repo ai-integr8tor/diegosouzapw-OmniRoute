@@ -18,8 +18,8 @@ import {
 } from "../config/constants.ts";
 import { scrubProxyAndFingerprintHeaders } from "../services/antigravityHeaderScrub.ts";
 import {
-  antigravityNativeOAuthUserAgent,
-  antigravityUserAgent,
+  getAntigravityContentHeaders,
+  getAntigravityOAuthUserAgent,
 } from "../services/antigravityHeaders.ts";
 import { classify429, decide429, type Decision } from "../services/antigravity429Engine.ts";
 import {
@@ -33,7 +33,6 @@ import { persistCreditBalance, getAllPersistedCreditBalances } from "@/lib/db/cr
 import { setConnectionRateLimitUntil } from "@/lib/db/providers";
 import { getMitmAlias } from "@/lib/db/models";
 import { obfuscateSensitiveWords } from "../services/antigravityObfuscation.ts";
-import { resolveAntigravityVersion } from "../services/antigravityVersion.ts";
 import { ensureAntigravityProjectAssigned } from "../services/antigravityProjectBootstrap.ts";
 import {
   resolveAntigravityModelId,
@@ -55,7 +54,9 @@ import {
 export { processAntigravitySSEPayload } from "./antigravity/sseCollect.ts";
 import {
   applyAntigravityClientProfileHeaders,
+  getAntigravityClientProfile,
   removeHeaderCaseInsensitive,
+  resolveAntigravityClientVersion,
 } from "../services/antigravityClientProfile.ts";
 import {
   generateAntigravityRequestId,
@@ -167,7 +168,7 @@ function serializeAntigravityRequest(
 type AntigravityRequestEnvelope = Record<string, unknown> & {
   project: string;
   model?: string;
-  userAgent: "antigravity" | "jetski";
+  userAgent: "antigravity";
   requestType: "agent" | "image_gen";
   requestId: string;
   request: Record<string, unknown>;
@@ -389,7 +390,7 @@ function getRequestTargetModel(body: Record<string, unknown>): string {
  * Agent mode regularly requests 32K–65K output tokens, which the Antigravity
  * backend rejects with HTTP 400 "Invalid Argument". 16384 matches the
  * upstream-accepted ceiling confirmed via successful 200 OK runs with
- * claude-sonnet-4-6 and gemini-3.1-pro-high across both Ask and Agent modes.
+ * claude-sonnet-4-6 and gemini-pro-agent across both Ask and Agent modes.
  */
 export const MAX_ANTIGRAVITY_OUTPUT_TOKENS = 16384;
 
@@ -549,10 +550,9 @@ export class AntigravityExecutor extends BaseExecutor {
   }
 
   buildHeaders(credentials: AntigravityCredentials, _stream = true): Record<string, string> {
+    const clientProfile = getAntigravityClientProfile(credentials);
     const raw = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${credentials.accessToken}`,
-      "User-Agent": antigravityUserAgent(),
+      ...getAntigravityContentHeaders(clientProfile, credentials.accessToken),
       Accept: "text/event-stream",
       "X-OmniRoute-Source": "omniroute",
     };
@@ -597,7 +597,11 @@ export class AntigravityExecutor extends BaseExecutor {
     // returned empty/transiently failed). Mirror the Cloud Code bootstrap to recover it
     // here — the helper memoizes per access-token, so this is a one-time round-trip.
     if (!projectId && credentials?.accessToken) {
-      const discovered = await ensureAntigravityProjectAssigned(credentials.accessToken);
+      const discovered = await ensureAntigravityProjectAssigned(
+        credentials.accessToken,
+        fetch,
+        getAntigravityClientProfile(credentials)
+      );
       if (discovered) projectId = discovered;
     }
 
@@ -794,7 +798,7 @@ export class AntigravityExecutor extends BaseExecutor {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           Accept: "application/json",
-          "User-Agent": antigravityNativeOAuthUserAgent(),
+          "User-Agent": getAntigravityOAuthUserAgent(getAntigravityClientProfile(credentials)),
         },
         body: new URLSearchParams(bodyParams),
       });
@@ -1055,7 +1059,7 @@ export class AntigravityExecutor extends BaseExecutor {
    * exactly the same single call as before (zero extra upstream requests).
    */
   async execute(input: ExecuteInput) {
-    await resolveAntigravityVersion();
+    await resolveAntigravityClientVersion(getAntigravityClientProfile(input.credentials));
 
     // Look up the chain by the NORMALLY-resolved upstream id (honours MITM/static aliases).
     // If a MITM alias remapped the id away from a known Pro tier, no chain applies → fast path.
@@ -1112,7 +1116,7 @@ export class AntigravityExecutor extends BaseExecutor {
     { model, body, stream, credentials, signal, log, upstreamExtraHeaders }: ExecuteInput,
     modelIdOverride?: string
   ) {
-    await resolveAntigravityVersion();
+    await resolveAntigravityClientVersion(getAntigravityClientProfile(credentials));
     const fallbackCount = this.getFallbackCount();
     let lastError = null;
     let lastStatus = 0;
@@ -1359,6 +1363,7 @@ export class AntigravityExecutor extends BaseExecutor {
                   creditsBody
                 );
                 const finalCreditsHeaders = serializedCreditsRequest.headers;
+                applyAntigravityClientProfileHeaders(finalCreditsHeaders, credentials, creditsBody);
                 try {
                   await capture(finalCreditsHeaders, serializedCreditsRequest.bodyString);
                   const creditsResp = await fetchWithReadinessTimeout(url, {
