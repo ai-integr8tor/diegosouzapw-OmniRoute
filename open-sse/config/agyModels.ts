@@ -2,9 +2,8 @@
 //
 // These models are pinned from the live `:fetchAvailableModels` endpoint
 // (https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels) using a
-// real `agy` consumer-OAuth token. The public catalog exposes the same clean Gemini
-// 3.5 Flash tier names as the Antigravity IDE provider; the shared Antigravity executor
-// maps those names to the legacy upstream IDs immediately before dispatch.
+// real `agy` consumer-OAuth token. The public catalog exposes the upstream Gemini 3.5
+// Flash ids verbatim; the shared Antigravity executor dispatches them unchanged.
 //
 // The `agy` provider reuses the `antigravity` executor/translator (identical backend),
 // but ships its OWN catalog so it can expose models the `antigravity` provider's static
@@ -36,7 +35,7 @@ export const AGY_PUBLIC_MODELS = Object.freeze([
   },
   // Gemini 3.x
   {
-    id: "gemini-3.1-pro-high",
+    id: "gemini-pro-agent",
     name: "Gemini 3.1 Pro (High)",
     contextLength: 1048576,
     maxOutputTokens: 65535,
@@ -54,24 +53,16 @@ export const AGY_PUBLIC_MODELS = Object.freeze([
     toolCalling: true,
   },
   {
-    id: "gemini-pro-agent",
-    name: "Gemini 3.1 Pro (Agent)",
+    id: "gemini-3-flash-agent",
+    name: "Gemini 3.5 Flash (High)",
     contextLength: 1048576,
-    maxOutputTokens: 65535,
+    maxOutputTokens: 65536,
     supportsReasoning: true,
     supportsVision: true,
     toolCalling: true,
   },
   {
     id: "gemini-3.5-flash-low",
-    name: "Gemini 3.5 Flash (Low)",
-    contextLength: 1048576,
-    maxOutputTokens: 65536,
-    supportsVision: true,
-    toolCalling: true,
-  },
-  {
-    id: "gemini-3.5-flash-medium",
     name: "Gemini 3.5 Flash (Medium)",
     contextLength: 1048576,
     maxOutputTokens: 65536,
@@ -80,8 +71,8 @@ export const AGY_PUBLIC_MODELS = Object.freeze([
     toolCalling: true,
   },
   {
-    id: "gemini-3.5-flash-high",
-    name: "Gemini 3.5 Flash (High)",
+    id: "gemini-3.5-flash-extra-low",
+    name: "Gemini 3.5 Flash (Low)",
     contextLength: 1048576,
     maxOutputTokens: 65536,
     supportsReasoning: true,
@@ -95,15 +86,13 @@ export const AGY_PUBLIC_MODELS = Object.freeze([
     maxOutputTokens: 65535,
     toolCalling: true,
   },
-  { id: "gemini-3.1-flash-image", name: "Gemini 3.1 Flash Image" },
   // Gemini 2.5
   {
-    id: "gemini-2.5-pro",
-    name: "Gemini 2.5 Pro",
+    id: "gemini-2.5-flash-thinking",
+    name: "Gemini 2.5 Flash Thinking",
     contextLength: 1048576,
     maxOutputTokens: 65535,
     supportsReasoning: true,
-    supportsVision: true,
     toolCalling: true,
   },
   {
@@ -111,14 +100,6 @@ export const AGY_PUBLIC_MODELS = Object.freeze([
     name: "Gemini 2.5 Flash",
     contextLength: 1048576,
     maxOutputTokens: 65535,
-    toolCalling: true,
-  },
-  {
-    id: "gemini-2.5-flash-thinking",
-    name: "Gemini 2.5 Flash Thinking",
-    contextLength: 1048576,
-    maxOutputTokens: 65535,
-    supportsReasoning: true,
     toolCalling: true,
   },
   {

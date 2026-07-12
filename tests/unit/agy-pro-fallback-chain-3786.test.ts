@@ -1,20 +1,7 @@
 /**
- * #3786 — Antigravity (`agy` / `antigravity`) `gemini-3.1-pro-high` returns HTTP 400
- * ("Antigravity upstream error (400)") on recent upstream versions; `gemini-3.1-pro-low`
- * still works. OmniRoute sends the requested id VERBATIM (per #3696 wire capture). The
- * upstream changed the accepted model-id format for the Pro-high tier and the two
- * actively-maintained competitor proxies DISAGREE on the live id:
- *   - AntigravityManager  → `gemini-3.1-pro-high`
- *   - CLIProxyAPI         → `gemini-pro-agent` (display: "Gemini 3.1 Pro (High)")
- *   - older form          → `gemini-3-pro-high`
- *
- * Because the live id cannot be known from static analysis, we mirror AntigravityManager's
- * ROBUST approach: a per-request FALLBACK CHAIN that retries alternative upstream ids on a
- * 400, until one succeeds (2xx) or the chain is exhausted (then the original 400 surfaces,
- * sanitized — hard rule #12).
- *
- * The fallback chain lives at EXECUTOR REQUEST-TIME (retry on 400). It is NOT a change to
- * the static `resolveAntigravityModelId` map, so the #3696 invariant test stays green.
+ * Antigravity Pro fallback behavior. The rejected `gemini-3.1-pro-high` discovery id is no
+ * longer public and has no fallback chain; the callable High id is `gemini-pro-agent`.
+ * Pro Low retains its bounded request-time fallback for older upstream versions.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -39,12 +26,8 @@ type ErrorPayload = {
 // Pure helper: getAntigravityModelFallbacks
 // ---------------------------------------------------------------------------
 
-test("(#3786) getAntigravityModelFallbacks returns the ordered pro-high chain", () => {
-  assert.deepEqual(getAntigravityModelFallbacks("gemini-3.1-pro-high"), [
-    "gemini-3.1-pro-high",
-    "gemini-pro-agent",
-    "gemini-3-pro-high",
-  ]);
+test("rejected pro-high discovery id has no fallback chain", () => {
+  assert.deepEqual(getAntigravityModelFallbacks("gemini-3.1-pro-high"), []);
 });
 
 test("(#3786) getAntigravityModelFallbacks returns the ordered pro-low chain", () => {
@@ -95,7 +78,7 @@ function envelopeModel(init: RequestInit | undefined): string {
   }
 }
 
-test("(#3786) execute retries pro-high with the next candidate when the first id 400s", async () => {
+test("execute retries pro-low with the next candidate when the first id 400s", async () => {
   const executor = new AntigravityExecutor();
   const originalFetch = globalThis.fetch;
   seedAntigravityIdeVersionCache("2.1.1");
@@ -104,14 +87,13 @@ test("(#3786) execute retries pro-high with the next candidate when the first id
   globalThis.fetch = (async (_url: string, init?: RequestInit) => {
     const m = envelopeModel(init);
     modelsTried.push(m);
-    // First candidate (gemini-3.1-pro-high) → 400, second (gemini-pro-agent) → 200
-    if (m === "gemini-3.1-pro-high") return make400(m);
+    if (m === "gemini-3.1-pro-low") return make400(m);
     return makeSuccessSSE();
   }) as typeof fetch;
 
   try {
     const result = await executor.execute({
-      model: "antigravity/gemini-3.1-pro-high",
+      model: "antigravity/gemini-3.1-pro-low",
       body: { request: { contents: [] } },
       stream: false,
       credentials: { accessToken: "token", projectId: "project-1" },
@@ -122,13 +104,13 @@ test("(#3786) execute retries pro-high with the next candidate when the first id
     assert.equal(result.response.status, 200, "second candidate should succeed");
     assert.equal(payload.choices[0].message.content, "OK");
     // Exactly two upstream calls: the 400 then the 200 on the next id.
-    assert.deepEqual(modelsTried, ["gemini-3.1-pro-high", "gemini-pro-agent"]);
+    assert.deepEqual(modelsTried, ["gemini-3.1-pro-low", "gemini-3-pro-low"]);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("(#3786) execute exhausts the chain on all-400 and surfaces a sanitized 400 (each candidate tried once)", async () => {
+test("execute exhausts the pro-low chain on all-400 and surfaces a sanitized 400", async () => {
   const executor = new AntigravityExecutor();
   const originalFetch = globalThis.fetch;
   seedAntigravityIdeVersionCache("2.1.1");
@@ -142,7 +124,7 @@ test("(#3786) execute exhausts the chain on all-400 and surfaces a sanitized 400
 
   try {
     const result = await executor.execute({
-      model: "antigravity/gemini-3.1-pro-high",
+      model: "antigravity/gemini-3.1-pro-low",
       body: { request: { contents: [] } },
       stream: false,
       credentials: { accessToken: "token", projectId: "project-1" },
@@ -157,13 +139,13 @@ test("(#3786) execute exhausts the chain on all-400 and surfaces a sanitized 400
     assert.ok(!payload.error.message.includes("at /"), "no raw stack trace (hard rule #12)");
 
     // Each candidate tried EXACTLY once (bounded — no infinite loop).
-    assert.deepEqual(modelsTried, ["gemini-3.1-pro-high", "gemini-pro-agent", "gemini-3-pro-high"]);
+    assert.deepEqual(modelsTried, ["gemini-3.1-pro-low", "gemini-3-pro-low"]);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("(#3786) happy path: first id 200 makes exactly ONE upstream call (zero extra)", async () => {
+test("pro-low happy path makes exactly one upstream call", async () => {
   const executor = new AntigravityExecutor();
   const originalFetch = globalThis.fetch;
   seedAntigravityIdeVersionCache("2.1.1");
@@ -176,7 +158,7 @@ test("(#3786) happy path: first id 200 makes exactly ONE upstream call (zero ext
 
   try {
     const result = await executor.execute({
-      model: "antigravity/gemini-3.1-pro-high",
+      model: "antigravity/gemini-3.1-pro-low",
       body: { request: { contents: [] } },
       stream: false,
       credentials: { accessToken: "token", projectId: "project-1" },
@@ -184,7 +166,7 @@ test("(#3786) happy path: first id 200 makes exactly ONE upstream call (zero ext
     });
 
     assert.equal(result.response.status, 200);
-    assert.deepEqual(modelsTried, ["gemini-3.1-pro-high"], "exactly one call on the happy path");
+    assert.deepEqual(modelsTried, ["gemini-3.1-pro-low"], "exactly one call on the happy path");
   } finally {
     globalThis.fetch = originalFetch;
   }

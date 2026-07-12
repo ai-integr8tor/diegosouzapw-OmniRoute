@@ -950,7 +950,15 @@ test("provider models route retries Antigravity discovery endpoints before retur
     // filterUserCallableAntigravityModels() drops it and discovery silently yields 0 models
     // → the route falls back to local_catalog instead of returning the remote (api) list.
     return Response.json({
-      models: [{ id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" }],
+      models: [
+        { id: "gemini-3.1-pro-high", displayName: "Gemini 3.1 Pro (High)" },
+        { id: "gemini-pro-agent", displayName: "Gemini 3.1 Pro (High)" },
+        { id: "gemini-3.5-flash-extra-low", displayName: "upstream-low" },
+        { id: "gemini-3.5-flash-low", displayName: "upstream-medium" },
+        { id: "gemini-3-flash-agent", displayName: "upstream-high" },
+        { id: "gemini-3.5-flash-high", displayName: "retired-friendly-high" },
+        { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
+      ],
     });
   };
 
@@ -971,7 +979,13 @@ test("provider models route retries Antigravity discovery endpoints before retur
     "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
     "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
   ]);
-  assert.deepEqual(body.models, [{ id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" }]);
+  assert.deepEqual(body.models, [
+    { id: "gemini-pro-agent", name: "Gemini 3.1 Pro (High)" },
+    { id: "gemini-3.5-flash-extra-low", name: "Gemini 3.5 Flash (Low)" },
+    { id: "gemini-3.5-flash-low", name: "Gemini 3.5 Flash (Medium)" },
+    { id: "gemini-3-flash-agent", name: "Gemini 3.5 Flash (High)" },
+    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+  ]);
 });
 
 test("provider models route falls back through all Antigravity discovery endpoints when needed", async () => {
@@ -999,7 +1013,19 @@ test("provider models route falls back through all Antigravity discovery endpoin
     "https://cloudcode-pa.googleapis.com/v1internal:models",
     "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:models",
   ]);
-  assert.ok(body.models.some((model) => model.id === "gemini-3-pro-preview"));
+  assert.equal(
+    body.models.some((model) => model.id === "gemini-3.1-pro-high"),
+    false
+  );
+  assert.ok(body.models.some((model) => model.id === "gemini-pro-agent"));
+  assert.equal(
+    body.models.some((model) => model.id === "gemini-3-pro-preview"),
+    false
+  );
+  assert.equal(
+    body.models.some((model) => model.id === "gemini-2.5-computer-use-preview-10-2025"),
+    false
+  );
 });
 
 test("provider models route returns the local catalog for OAuth-backed Qwen connections", async () => {

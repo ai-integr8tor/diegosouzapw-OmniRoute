@@ -300,7 +300,7 @@ export async function registerNodejs(): Promise<void> {
 
     const seededModelAliases = await seedDefaultModelAliases();
     console.log(
-      `[STARTUP] Model alias seed: applied=${seededModelAliases.applied.length}, skipped=${seededModelAliases.skipped.length}, failed=${seededModelAliases.failed.length}`
+      `[STARTUP] Model alias seed: applied=${seededModelAliases.applied.length}, skipped=${seededModelAliases.skipped.length}, removed=${seededModelAliases.removed.length}, failed=${seededModelAliases.failed.length}`
     );
     startSessionAccountAffinityCleanup();
 

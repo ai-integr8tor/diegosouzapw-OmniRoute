@@ -50,12 +50,18 @@ test("agy ships its own catalog including the Claude models antigravity omits", 
   const ids = REGISTRY.agy.models.map((m) => m.id);
   assert.ok(ids.includes("claude-opus-4-6-thinking"), "must expose Claude Opus 4.6 Thinking");
   assert.ok(ids.includes("claude-sonnet-4-6"), "must expose Claude Sonnet 4.6");
-  assert.ok(ids.includes("gemini-3.5-flash-low"), "must expose clean Flash Low tier");
-  assert.ok(ids.includes("gemini-3.5-flash-medium"), "must expose clean Flash Medium tier");
-  assert.ok(ids.includes("gemini-3.5-flash-high"), "must expose clean Flash High tier");
-  assert.ok(!ids.includes("gemini-3-flash-agent"));
+  assert.ok(ids.includes("gemini-3.5-flash-extra-low"), "must expose upstream Flash Low tier");
+  assert.ok(ids.includes("gemini-3.5-flash-low"), "must expose upstream Flash Medium tier");
+  assert.ok(ids.includes("gemini-3-flash-agent"), "must expose upstream Flash High tier");
+  assert.ok(!ids.includes("gemini-3.5-flash-medium"));
+  assert.ok(!ids.includes("gemini-3.5-flash-high"));
+  assert.ok(!ids.includes("gemini-3.5-flash-preview"));
   assert.ok(!ids.includes("gemini-3-flash"));
-  assert.ok(!ids.includes("gemini-3.5-flash-extra-low"));
+  assert.ok(!ids.includes("gemini-3.1-pro-high"), "must not expose rejected Pro High id");
+  assert.ok(ids.includes("gemini-pro-agent"), "must expose callable Pro High id");
+  assert.ok(!ids.includes("gemini-2.5-pro"), "must not expose unavailable Gemini 2.5 Pro");
+  assert.ok(ids.includes("gemini-2.5-flash"), "must retain working Gemini 2.5 Flash");
+  assert.ok(ids.includes("gemini-2.5-flash-lite"), "must retain working Gemini 2.5 Flash Lite");
   // Tab-completion models are not chat-callable and must be excluded.
   assert.ok(!ids.includes("tab_flash_lite_preview"));
   assert.ok(!ids.includes("tab_jump_flash_lite_preview"));
@@ -64,12 +70,29 @@ test("agy ships its own catalog including the Claude models antigravity omits", 
 
 test("agy model helpers resolve catalog ids and display names", () => {
   assert.equal(isUserCallableAgyModelId("claude-opus-4-6-thinking"), true);
+  assert.equal(isUserCallableAgyModelId("gemini-2.5-pro"), false);
+  assert.equal(isUserCallableAgyModelId("gemini-2.5-flash"), true);
+  assert.equal(isUserCallableAgyModelId("gemini-3.1-pro-high"), false);
+  assert.equal(isUserCallableAgyModelId("gemini-pro-agent"), true);
+  assert.equal(isUserCallableAgyModelId("gemini-3.5-flash-extra-low"), true);
+  assert.equal(isUserCallableAgyModelId("gemini-3.5-flash-low"), true);
+  assert.equal(isUserCallableAgyModelId("gemini-3-flash-agent"), true);
+  assert.equal(isUserCallableAgyModelId("gemini-3.5-flash-medium"), false);
+  assert.equal(isUserCallableAgyModelId("gemini-3.5-flash-high"), false);
+  assert.equal(isUserCallableAgyModelId("gemini-3.5-flash-preview"), false);
   assert.equal(isUserCallableAgyModelId("tab_flash_lite_preview"), false);
   assert.equal(isUserCallableAgyModelId(""), false);
   assert.equal(
     getClientVisibleAgyModelName("claude-opus-4-6-thinking"),
     "Claude Opus 4.6 (Thinking)"
   );
+  assert.equal(getClientVisibleAgyModelName("gemini-pro-agent"), "Gemini 3.1 Pro (High)");
+  assert.equal(
+    getClientVisibleAgyModelName("gemini-3.5-flash-extra-low"),
+    "Gemini 3.5 Flash (Low)"
+  );
+  assert.equal(getClientVisibleAgyModelName("gemini-3.5-flash-low"), "Gemini 3.5 Flash (Medium)");
+  assert.equal(getClientVisibleAgyModelName("gemini-3-flash-agent"), "Gemini 3.5 Flash (High)");
   assert.equal(getClientVisibleAgyModelName("unknown-model", "Fallback"), "Fallback");
 });
 
