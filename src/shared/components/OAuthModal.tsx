@@ -15,10 +15,25 @@ const GOOGLE_OAUTH_PROVIDERS = new Set(["antigravity", "agy"]);
 /** Providers that use a local callback server on a random port (PKCE browser flow). */
 const PKCE_CALLBACK_SERVER_PROVIDERS = new Set(["codex"]);
 
-/**
- * Devin Desktop and Devin CLI use the import-token flow.
- */
-const IMPORT_TOKEN_ONLY_PROVIDERS = new Set(["devin-desktop", "devin-cli", "grok-cli"]);
+const DEVICE_CODE_PROVIDERS = new Set([
+  "github",
+  "qwen",
+  "kiro",
+  "amazon-q",
+  "kimi-coding",
+  "kilocode",
+  "codebuddy-cn",
+  "grok-cli",
+]);
+
+const TOKEN_PASTE_PROVIDERS = new Set(["devin-desktop", "devin-cli", "grok-cli"]);
+const IMPORT_TOKEN_ONLY_PROVIDERS = new Set(["devin-desktop", "devin-cli"]);
+
+export function formatDeviceCodeRemaining(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  return `${minutes}:${String(safeSeconds % 60).padStart(2, "0")}`;
+}
 
 type OAuthModalProps = {
   isOpen: boolean;
@@ -52,17 +67,17 @@ export default function OAuthModal({
   const [isDeviceCode, setIsDeviceCode] = useState(false);
   const [deviceData, setDeviceData] = useState(null);
   const [polling, setPolling] = useState(false);
+  const [deviceCodeExpiresAt, setDeviceCodeExpiresAt] = useState<number | null>(null);
+  const [deviceCodeSecondsRemaining, setDeviceCodeSecondsRemaining] = useState<number | null>(null);
   // API-key paste mode for direct-token providers.
-  const [showPasteToken, setShowPasteToken] = useState(
-    provider === "devin-desktop" || provider === "devin-cli" || provider === "grok-cli"
-  );
+  const [showPasteToken, setShowPasteToken] = useState(IMPORT_TOKEN_ONLY_PROVIDERS.has(provider));
   const [pasteToken, setPasteToken] = useState("");
   const [savingToken, setSavingToken] = useState(false);
 
-  const supportsTokenPaste =
-    provider === "devin-desktop" || provider === "devin-cli" || provider === "grok-cli";
+  const supportsTokenPaste = TOKEN_PASTE_PROVIDERS.has(provider);
   const importTokenOnly = IMPORT_TOKEN_ONLY_PROVIDERS.has(provider);
   const popupRef = useRef(null);
+  const deviceFlowRunRef = useRef(0);
   const { copied, copy } = useCopyToClipboard();
   const deviceVerificationUrl =
     deviceData?.verification_uri_complete || deviceData?.verification_uri || "";
@@ -96,6 +111,13 @@ export default function OAuthModal({
   const { isLocalhost, isTrueLocalhost, placeholderUrl } = runtimeLocation;
   const callbackProcessedRef = useRef(false);
   const flowStartedRef = useRef(false);
+
+  const invalidateDeviceFlow = useCallback(() => {
+    deviceFlowRunRef.current += 1;
+    setPolling(false);
+    setDeviceCodeExpiresAt(null);
+    setDeviceCodeSecondsRemaining(null);
+  }, []);
 
   // Define all useCallback hooks BEFORE the useEffects that reference them
 
@@ -202,12 +224,19 @@ export default function OAuthModal({
 
   // Poll for device code token
   const startPolling = useCallback(
-    async (deviceCode, codeVerifier, interval, extraData) => {
-      setPolling(true);
-      const maxAttempts = 60;
+    async (deviceCode, codeVerifier, interval, expiresIn, extraData) => {
+      const runId = ++deviceFlowRunRef.current;
+      const safeInterval = Math.max(1, Number(interval) || 5);
+      const safeExpiresIn = Math.max(1, Number(expiresIn) || safeInterval * 60);
+      const deadline = Date.now() + safeExpiresIn * 1000;
+      let currentInterval = safeInterval;
 
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise((r) => setTimeout(r, interval * 1000));
+      setPolling(true);
+      setDeviceCodeExpiresAt(deadline);
+
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, currentInterval * 1000));
+        if (runId !== deviceFlowRunRef.current || Date.now() >= deadline) break;
 
         try {
           const res = await fetch(`/api/oauth/${provider}/poll`, {
@@ -222,32 +251,39 @@ export default function OAuthModal({
           });
 
           const data = (await parseResponseBody(res)) as Record<string, unknown>;
+          if (runId !== deviceFlowRunRef.current) return;
 
           if (data.success) {
             setStep("success");
             setPolling(false);
+            setDeviceCodeExpiresAt(null);
             onSuccess?.();
             return;
           }
 
-          if (data.error === "expired_token" || data.error === "access_denied") {
-            throw new Error(data.errorDescription || data.error);
-          }
-
           if (data.error === "slow_down") {
-            interval = Math.min(interval + 5, 30);
+            currentInterval = Math.min(currentInterval + 5, 30);
+            continue;
+          }
+          if (data.error && !data.pending) {
+            throw new Error(String(data.errorDescription || data.error));
           }
         } catch (err) {
-          setError(err.message);
+          if (runId !== deviceFlowRunRef.current) return;
+          setError(err instanceof Error ? err.message : "Authorization failed");
           setStep("error");
           setPolling(false);
+          setDeviceCodeExpiresAt(null);
           return;
         }
       }
 
-      setError("Authorization timeout");
-      setStep("error");
-      setPolling(false);
+      if (runId === deviceFlowRunRef.current) {
+        setError("Authorization timeout");
+        setStep("error");
+        setPolling(false);
+        setDeviceCodeExpiresAt(null);
+      }
     },
     [provider, onSuccess, reauthConnection]
   );
@@ -258,17 +294,11 @@ export default function OAuthModal({
     try {
       setError(null);
 
-      // Device code flow (GitHub, Qwen, Kiro, Kimi Coding, KiloCode)
-      if (
-        provider === "github" ||
-        provider === "qwen" ||
-        provider === "kiro" ||
-        provider === "amazon-q" ||
-        provider === "kimi-coding" ||
-        provider === "kilocode" ||
-        provider === "codebuddy-cn"
-      ) {
+      // Device code flow
+      if (DEVICE_CODE_PROVIDERS.has(provider)) {
+        invalidateDeviceFlow();
         setIsDeviceCode(true);
+        setDeviceData(null);
         setStep("waiting");
 
         const deviceCodeUrl = new URL(`/api/oauth/${provider}/device-code`, window.location.origin);
@@ -297,7 +327,7 @@ export default function OAuthModal({
 
         // Open verification URL
         const verifyUrl = data.verification_uri_complete || data.verification_uri;
-        if (verifyUrl) window.open(verifyUrl, "oauth_verify");
+        if (typeof verifyUrl === "string" && verifyUrl) window.open(verifyUrl, "oauth_verify");
 
         // Start polling - pass extraData for Kiro (contains _clientId, _clientSecret)
         const extraData =
@@ -308,7 +338,13 @@ export default function OAuthModal({
                 _region: data._region,
               }
             : null;
-        startPolling(data.device_code, data.codeVerifier, data.interval || 5, extraData);
+        startPolling(
+          data.device_code,
+          data.codeVerifier,
+          data.interval || 5,
+          data.expires_in,
+          extraData
+        );
         return;
       }
 
@@ -470,29 +506,57 @@ export default function OAuthModal({
     onSuccess,
     reauthConnection,
     idcConfig,
+    invalidateDeviceFlow,
   ]);
 
-  // Reset guard when modal closes
+  useEffect(() => {
+    if (!deviceCodeExpiresAt) {
+      setDeviceCodeSecondsRemaining(null);
+      return;
+    }
+
+    const updateRemaining = () => {
+      setDeviceCodeSecondsRemaining(
+        Math.max(0, Math.ceil((deviceCodeExpiresAt - Date.now()) / 1000))
+      );
+    };
+    updateRemaining();
+    const timer = window.setInterval(updateRemaining, 1000);
+    return () => window.clearInterval(timer);
+  }, [deviceCodeExpiresAt]);
+
+  useEffect(() => {
+    invalidateDeviceFlow();
+    flowStartedRef.current = false;
+  }, [provider, invalidateDeviceFlow]);
+
   useEffect(() => {
     if (!isOpen) {
+      invalidateDeviceFlow();
       flowStartedRef.current = false;
     }
-  }, [isOpen]);
+  }, [isOpen, invalidateDeviceFlow]);
+
+  useEffect(
+    () => () => {
+      deviceFlowRunRef.current += 1;
+    },
+    []
+  );
 
   // Reset state and start OAuth when modal opens
   useEffect(() => {
-    if (isOpen && provider) {
-      if (flowStartedRef.current) return; // Already started, prevent duplicate
-      flowStartedRef.current = true;
-      setAuthData(null);
-      setCallbackUrl("");
-      setError(null);
-      setIsDeviceCode(false);
-      setDeviceData(null);
-      setPolling(false);
-      // Auto start OAuth
-      startOAuthFlow();
-    }
+    if (!isOpen || !provider || flowStartedRef.current) return;
+    flowStartedRef.current = true;
+    const startsInPasteMode = IMPORT_TOKEN_ONLY_PROVIDERS.has(provider);
+    setShowPasteToken(startsInPasteMode);
+    setAuthData(null);
+    setCallbackUrl("");
+    setError(null);
+    setIsDeviceCode(false);
+    setDeviceData(null);
+    setPolling(false);
+    if (!startsInPasteMode) startOAuthFlow();
   }, [isOpen, provider, startOAuthFlow]);
 
   // Listen for OAuth callback via multiple methods
@@ -718,32 +782,45 @@ export default function OAuthModal({
     }
   };
 
+  const handleClose = useCallback(() => {
+    invalidateDeviceFlow();
+    onClose();
+  }, [invalidateDeviceFlow, onClose]);
+
+  const handlePasteMode = useCallback(() => {
+    invalidateDeviceFlow();
+    setShowPasteToken(true);
+  }, [invalidateDeviceFlow]);
+
+  const handleBrowserMode = useCallback(() => {
+    setShowPasteToken(false);
+    startOAuthFlow();
+  }, [startOAuthFlow]);
+
   if (!provider || !providerInfo) return null;
 
   return (
     <Modal
       isOpen={isOpen}
       title={t("title", { providerName: providerInfo.name })}
-      onClose={onClose}
+      onClose={handleClose}
       size="lg"
     >
       <div className="flex flex-col gap-4">
-        {/* Paste-token tab toggle (Devin providers only).
-            Phase 1 hotfix: when importTokenOnly is true, hide the entire toggle —
-            there is no "Browser Login" tab to switch to until Phase 2 ships. */}
+        {/* Browser login with an optional token-import fallback. */}
         {supportsTokenPaste && !importTokenOnly && step !== "success" && (
           <div className="flex gap-2 border-b border-border pb-3">
             <button
               className={`text-sm px-3 py-1 rounded-t ${!showPasteToken ? "font-semibold border-b-2 border-primary text-primary" : "text-text-muted"}`}
-              onClick={() => setShowPasteToken(false)}
+              onClick={handleBrowserMode}
             >
               Browser Login
             </button>
             <button
               className={`text-sm px-3 py-1 rounded-t ${showPasteToken ? "font-semibold border-b-2 border-primary text-primary" : "text-text-muted"}`}
-              onClick={() => setShowPasteToken(true)}
+              onClick={handlePasteMode}
             >
-              Paste API Key
+              {provider === "grok-cli" ? "JWT Token" : "Paste API Key"}
             </button>
           </div>
         )}
@@ -774,7 +851,7 @@ export default function OAuthModal({
               >
                 {savingToken ? "Saving…" : "Save Connection"}
               </Button>
-              <Button onClick={onClose} variant="ghost" fullWidth>
+              <Button onClick={handleClose} variant="ghost" fullWidth>
                 Cancel
               </Button>
             </div>
@@ -809,7 +886,14 @@ export default function OAuthModal({
                   <div className="bg-sidebar p-4 rounded-lg mb-4">
                     <p className="text-xs text-text-muted mb-1">{t("deviceCodeVerificationUrl")}</p>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 text-sm break-all">{deviceVerificationUrl}</code>
+                      <a
+                        href={deviceVerificationUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex-1 text-sm break-all text-primary hover:underline"
+                      >
+                        {deviceVerificationUrl}
+                      </a>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -831,6 +915,15 @@ export default function OAuthModal({
                         onClick={() => copy(deviceData.user_code, "user_code")}
                       />
                     </div>
+                    {deviceCodeSecondsRemaining !== null && (
+                      <div
+                        className="mt-3 flex items-center justify-center gap-1 text-xs text-text-muted"
+                        aria-label={t("deviceCodeWaiting")}
+                      >
+                        <span className="material-symbols-outlined text-sm">schedule</span>
+                        <span>{formatDeviceCodeRemaining(deviceCodeSecondsRemaining)}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 {polling && (
@@ -934,7 +1027,7 @@ export default function OAuthModal({
                   >
                     {t("connect")}
                   </Button>
-                  <Button onClick={onClose} variant="ghost" fullWidth>
+                  <Button onClick={handleClose} variant="ghost" fullWidth>
                     {t("cancel")}
                   </Button>
                 </div>
@@ -955,7 +1048,7 @@ export default function OAuthModal({
             <p className="text-sm text-text-muted mb-4">
               {t("successMessage", { providerName: providerInfo.name })}
             </p>
-            <Button onClick={onClose} fullWidth>
+            <Button onClick={handleClose} fullWidth>
               {t("done")}
             </Button>
           </div>
@@ -975,7 +1068,7 @@ export default function OAuthModal({
               <Button onClick={startOAuthFlow} variant="secondary" fullWidth>
                 {t("tryAgain")}
               </Button>
-              <Button onClick={onClose} variant="ghost" fullWidth>
+              <Button onClick={handleClose} variant="ghost" fullWidth>
                 {t("cancel")}
               </Button>
             </div>

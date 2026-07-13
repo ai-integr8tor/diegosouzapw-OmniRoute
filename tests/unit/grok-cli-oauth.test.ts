@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 const { grokCli } = await import("../../src/lib/oauth/providers/grok-cli.ts");
 const { resolvePublicCred } = await import("@omniroute/open-sse/utils/publicCreds");
 
+const GROK_CLI_SCOPE = "openid profile email offline_access grok-cli:access api:access";
+
 test("Grok Build OAuth Provider - config", () => {
   assert.ok(grokCli.config.clientId, "clientId should be defined");
   // The public client_id must come from the embedded default (Hard Rule #11),
@@ -21,8 +23,107 @@ test("publicCreds: grok_id embedded default is present and decodes", () => {
   assert.ok(decoded.length > 0, "grok_id must decode to a non-empty client id");
 });
 
-test("Grok Build OAuth Provider - flowType is import_token", () => {
-  assert.equal(grokCli.flowType, "import_token");
+test("Grok Build OAuth Provider - flowType is device_code", () => {
+  assert.equal(grokCli.flowType, "device_code");
+  assert.equal(grokCli.config.deviceCodeUrl, "https://auth.x.ai/oauth2/device/code");
+  assert.equal(grokCli.config.scope, GROK_CLI_SCOPE);
+});
+
+test("Grok Build OAuth Provider - requests and normalizes a device code", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  let requestUrl = "";
+  let requestInit: RequestInit | undefined;
+  globalThis.fetch = (async (input, init) => {
+    requestUrl = String(input);
+    requestInit = init;
+    return new Response(
+      JSON.stringify({
+        device_code: "opaque-device-code",
+        user_code: "ABCD-EFGH",
+        verification_uri: "https://accounts.x.ai/oauth2/device",
+        verification_uri_complete: "https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH",
+        expires_in: 1800,
+        interval: 5,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  const result = await grokCli.requestDeviceCode(grokCli.config);
+  const body = new URLSearchParams(String(requestInit?.body));
+
+  assert.equal(requestUrl, grokCli.config.deviceCodeUrl);
+  assert.equal(requestInit?.method, "POST");
+  assert.equal(body.get("client_id"), grokCli.config.clientId);
+  assert.equal(body.get("scope"), GROK_CLI_SCOPE);
+  assert.equal(result.device_code, "opaque-device-code");
+  assert.equal(result.user_code, "ABCD-EFGH");
+  assert.equal(result.expires_in, 1800);
+  assert.equal(result.interval, 5);
+});
+
+test("Grok Build OAuth Provider - polls with the standard device grant", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  let requestInit: RequestInit | undefined;
+  globalThis.fetch = (async (_input, init) => {
+    requestInit = init;
+    return new Response(
+      JSON.stringify({
+        error: "authorization_pending",
+        error_description: "User has not yet authorized",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  const result = await grokCli.pollToken(grokCli.config, "opaque-device-code");
+  const body = new URLSearchParams(String(requestInit?.body));
+
+  assert.equal(body.get("client_id"), grokCli.config.clientId);
+  assert.equal(body.get("device_code"), "opaque-device-code");
+  assert.equal(body.get("grant_type"), "urn:ietf:params:oauth:grant-type:device_code");
+  assert.equal(result.ok, false);
+  assert.equal(result.data.error, "authorization_pending");
+});
+
+test("Grok Build OAuth Provider - maps a standard OAuth token response", () => {
+  const accessPayload = {
+    sub: "user-123",
+    email: "device@example.com",
+    team_id: "team-456",
+    tier: 2,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  };
+  const accessToken = `eyJhbGciOiJFUzI1NiJ9.${Buffer.from(JSON.stringify(accessPayload)).toString("base64url")}.signature`;
+  const idToken = `eyJhbGciOiJFUzI1NiJ9.${Buffer.from(
+    JSON.stringify({ email: "device@example.com" })
+  ).toString("base64url")}.signature`;
+
+  const result = grokCli.mapTokens({
+    access_token: accessToken,
+    refresh_token: "refresh-device-token",
+    id_token: idToken,
+    expires_in: 3600,
+    token_type: "Bearer",
+    scope: GROK_CLI_SCOPE,
+  });
+
+  assert.equal(result.accessToken, accessToken);
+  assert.equal(result.refreshToken, "refresh-device-token");
+  assert.equal(result.idToken, idToken);
+  assert.equal(result.expiresIn, 3600);
+  assert.equal(result.tokenType, "Bearer");
+  assert.equal(result.scope, GROK_CLI_SCOPE);
+  assert.equal(result.email, "device@example.com");
+  assert.equal(result.providerSpecificData?.teamId, "team-456");
 });
 
 test("Grok Build OAuth Provider - mapTokens from raw JWT", () => {
