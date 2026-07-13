@@ -23,6 +23,9 @@ const GROK_TOKEN_URL = "https://auth.x.ai/oauth2/token";
 const REQUEST_TIMEOUT_MS = 60_000;
 // xAI cli-chat-proxy hard limit on tools per request.
 const MAX_TOOLS = 200;
+const GROK_CLI_VERSION = "0.2.93";
+const GROK_CLI_IDENTIFIER = "grok-shell";
+const GROK_CLI_USER_AGENT = "grok-shell/0.2.93 (macos; aarch64)";
 
 type ProxyResolution = { source: string; proxyUrl: string | null };
 type GrokRequestDispatch = { agent?: https.Agent; family?: 4 };
@@ -79,7 +82,7 @@ export class GrokCliExecutor extends BaseExecutor {
     const { model, body, stream, credentials, signal } = input;
 
     const url = this.buildUrl(model, stream, 0, credentials);
-    const headers = this.buildHeaders(credentials, stream);
+    const headers = this.buildHeaders(credentials, stream, null, model);
     const transformedBody = this.transformRequest(model, body, stream, credentials);
     const bodyStr = JSON.stringify(transformedBody);
 
@@ -263,7 +266,12 @@ export class GrokCliExecutor extends BaseExecutor {
     });
   }
 
-  buildHeaders(credentials: ProviderCredentials, stream = true) {
+  buildHeaders(
+    credentials: ProviderCredentials,
+    stream = true,
+    _clientHeaders?: Record<string, string> | null,
+    model?: string
+  ) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -275,9 +283,10 @@ export class GrokCliExecutor extends BaseExecutor {
     }
 
     headers["Accept"] = stream ? "text/event-stream" : "application/json";
-    headers["x-grok-client-version"] = "0.2.72";
-    headers["x-grok-client-identifier"] = "grok_cli_rs";
-    headers["User-Agent"] = "grok-cli/0.2.72 (Windows 10.0.26200; x64)";
+    headers["x-grok-client-version"] = GROK_CLI_VERSION;
+    headers["x-grok-client-identifier"] = GROK_CLI_IDENTIFIER;
+    headers["User-Agent"] = GROK_CLI_USER_AGENT;
+    if (model) headers["x-grok-model-override"] = model;
 
     return headers;
   }
@@ -295,21 +304,26 @@ export class GrokCliExecutor extends BaseExecutor {
     }
     transformed.stream = !!stream;
 
-    // Grok Build rejects unsupported parameters with 400. `reasoning_effort`/`reasoning`
-    // are sent by clients like Claude Code (routing the Opus slot) but are not accepted
-    // by Grok Build's upstream chat-proxy endpoint — see #6288.
+    // Grok Build rejects unsupported parameters with 400. The Responses translator
+    // promotes reasoning_effort into a nested reasoning object for grok-4.5, while
+    // Composer does not support reasoning — see #6288.
     const UNSUPPORTED = [
       "presencePenalty",
       "frequencyPenalty",
       "logprobs",
       "topLogprobs",
+      "presence_penalty",
+      "frequency_penalty",
+      "top_logprobs",
       "reasoning_effort",
-      "reasoning",
     ];
     for (const param of UNSUPPORTED) {
       if (param in transformed) {
         delete transformed[param];
       }
+    }
+    if (model === "grok-composer-2.5-fast") {
+      delete transformed.reasoning;
     }
 
     // xAI's cli-chat-proxy enforces a maximum of 200 tools per request and
