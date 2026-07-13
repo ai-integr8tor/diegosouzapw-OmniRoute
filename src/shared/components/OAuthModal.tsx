@@ -16,12 +16,9 @@ const GOOGLE_OAUTH_PROVIDERS = new Set(["antigravity", "agy"]);
 const PKCE_CALLBACK_SERVER_PROVIDERS = new Set(["codex"]);
 
 /**
- * Phase 1 hotfix (2026-05-29): windsurf & devin-cli only support import-token.
- * Their PKCE flow targeting app.devin.ai/editor/signin returned 404 post-rebrand.
- * Phase 2 will reintroduce browser login via Firebase OAuth + RegisterUser.
- * Spec: _tasks/superpowers/specs/2026-05-29-windsurf-login-fix-design.md.
+ * Devin Desktop and Devin CLI use the import-token flow.
  */
-const IMPORT_TOKEN_ONLY_PROVIDERS = new Set(["windsurf", "devin-cli", "grok-cli"]);
+const IMPORT_TOKEN_ONLY_PROVIDERS = new Set(["devin-desktop", "devin-cli", "grok-cli"]);
 
 type OAuthModalProps = {
   isOpen: boolean;
@@ -55,17 +52,15 @@ export default function OAuthModal({
   const [isDeviceCode, setIsDeviceCode] = useState(false);
   const [deviceData, setDeviceData] = useState(null);
   const [polling, setPolling] = useState(false);
-  // API-key paste mode: for providers that accept a token directly (windsurf, devin-cli)
+  // API-key paste mode for direct-token providers.
   const [showPasteToken, setShowPasteToken] = useState(
-    provider === "windsurf" || provider === "devin-cli" || provider === "grok-cli"
+    provider === "devin-desktop" || provider === "devin-cli" || provider === "grok-cli"
   );
   const [pasteToken, setPasteToken] = useState("");
   const [savingToken, setSavingToken] = useState(false);
 
   const supportsTokenPaste =
-    provider === "windsurf" || provider === "devin-cli" || provider === "grok-cli";
-  // Phase 1 hotfix (2026-05-29): windsurf/devin-cli are import-token-only.
-  // Hide the "Browser Login" tab — Phase 2 will restore it via Firebase OAuth.
+    provider === "devin-desktop" || provider === "devin-cli" || provider === "grok-cli";
   const importTokenOnly = IMPORT_TOKEN_ONLY_PROVIDERS.has(provider);
   const popupRef = useRef(null);
   const { copied, copy } = useCopyToClipboard();
@@ -173,7 +168,7 @@ export default function OAuthModal({
     [authData, provider, onSuccess, reauthConnection]
   );
 
-  // Save a raw API token directly (windsurf / devin-cli import-token path)
+  // Save a raw API token directly.
   const handleSaveToken = useCallback(async () => {
     const token = pasteToken.trim();
     if (!token || !provider) return;
@@ -181,7 +176,7 @@ export default function OAuthModal({
     setError(null);
     try {
       // POST to /exchange with a synthetic "import_token" payload.
-      // The windsurf provider's mapTokens() handles a bare accessToken/apiKey field.
+      // The provider mapTokens() handles a bare accessToken/apiKey field.
       const res = await fetch(`/api/oauth/${provider}/import-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -330,9 +325,9 @@ export default function OAuthModal({
         forceManual = true;
       }
 
-      // PKCE callback server providers (Codex, Windsurf, Devin CLI):
+      // PKCE callback server providers (Codex and Devin):
       // On localhost, spin up a local callback server and poll for the result.
-      // Codex uses a fixed port 1455; Windsurf/Devin CLI use a random OS-assigned port.
+      // Codex uses a fixed port 1455; Devin uses a random OS-assigned port.
       // On remote the server is unreachable — fall through to standard manual flow.
       if (PKCE_CALLBACK_SERVER_PROVIDERS.has(provider)) {
         if (isTrueLocalhost) {
@@ -394,7 +389,7 @@ export default function OAuthModal({
       // Authorization code flow
       // Redirect URI strategy:
       // - Codex/OpenAI: always port 1455 (registered in OAuth app)
-      // - Windsurf/Devin CLI (remote fallback): use localhost with OmniRoute port + /auth/callback
+      // - Devin (remote fallback): use localhost with OmniRoute port + /auth/callback
       //   (on true localhost the callback server handles it; this is only reached on remote)
       // - Google OAuth providers (antigravity/agy): default to loopback so the
       //   bundled native/desktop credentials keep working. Prefer 127.0.0.1 over
@@ -407,8 +402,8 @@ export default function OAuthModal({
       let redirectUri: string;
       if (provider === "codex" || provider === "openai") {
         redirectUri = "http://localhost:1455/auth/callback";
-      } else if (provider === "windsurf" || provider === "devin-cli") {
-        // Remote fallback: use OmniRoute's port with the /auth/callback path Windsurf expects.
+      } else if (provider === "devin-desktop" || provider === "devin-cli") {
+        // Retained callback-path fallback for the retired browser flow.
         // On true localhost this code is never reached (callback server handles the flow above).
         const port = window.location.port || "20128";
         redirectUri = `http://localhost:${port}/auth/callback`;
@@ -733,7 +728,7 @@ export default function OAuthModal({
       size="lg"
     >
       <div className="flex flex-col gap-4">
-        {/* Paste-token tab toggle (Windsurf / Devin CLI only).
+        {/* Paste-token tab toggle (Devin providers only).
             Phase 1 hotfix: when importTokenOnly is true, hide the entire toggle —
             there is no "Browser Login" tab to switch to until Phase 2 ships. */}
         {supportsTokenPaste && !importTokenOnly && step !== "success" && (
@@ -753,15 +748,15 @@ export default function OAuthModal({
           </div>
         )}
 
-        {/* Paste-token form (Windsurf / Devin CLI) */}
+        {/* Paste-token form (Devin Desktop / Devin CLI) */}
         {supportsTokenPaste && showPasteToken && step !== "success" && (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-text-muted">
-              {provider === "windsurf"
-                ? 'In the Windsurf / VS Code IDE, run the "Windsurf: Provide Auth Token" command from the command palette (or click the Jupyter "Get Windsurf Authentication Token" button), then copy the shown token and paste it below. Opening windsurf.com/show-auth-token directly only shows a "Redirecting" page — the IDE must initiate the flow.'
+              {provider === "devin-desktop"
+                ? 'In Devin Desktop, open the command palette and run "Devin: Copy API Key to Clipboard", then paste the copied key below.'
                 : provider === "grok-cli"
                   ? 'Paste your Grok Build JWT token from ~/.grok/auth.json (the "key" field value). You can get it by running `grok login` in your terminal.'
-                  : 'Provide your WINDSURF_API_KEY (obtained via `devin auth login`, or via the Windsurf IDE "Windsurf: Provide Auth Token" command).'}
+                  : "Provide your WINDSURF_API_KEY after running `devin auth login`."}
             </p>
             <Input
               value={pasteToken}
