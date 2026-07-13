@@ -1009,19 +1009,11 @@ test("provider models route falls back through all Antigravity discovery endpoin
     "https://cloudcode-pa.googleapis.com/v1internal:models",
     "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:models",
   ]);
-  assert.equal(
-    body.models.some((model) => model.id === "gemini-3.1-pro-high"),
-    false
-  );
-  assert.ok(body.models.some((model) => model.id === "gemini-pro-agent"));
-  assert.equal(
-    body.models.some((model) => model.id === "gemini-3-pro-preview"),
-    false
-  );
-  assert.equal(
-    body.models.some((model) => model.id === "gemini-2.5-computer-use-preview-10-2025"),
-    false
-  );
+  const modelIds = new Set(body.models.map((model) => model.id));
+  assert.equal(modelIds.has("gemini-3.1-pro-high"), false);
+  assert.ok(modelIds.has("gemini-pro-agent"));
+  assert.equal(modelIds.has("gemini-3-pro-preview"), false);
+  assert.equal(modelIds.has("gemini-2.5-computer-use-preview-10-2025"), false);
 });
 
 test("provider models route returns the local catalog for OAuth-backed Qwen connections", async () => {
