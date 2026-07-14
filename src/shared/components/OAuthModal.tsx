@@ -2,13 +2,17 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
+
+import { isCredentialBlob, submitCredentialBlob } from "@/shared/components/oauthBlobSubmit";
+import { parseResponseBody, getErrorMessage } from "@/shared/utils/api";
+
 import Modal from "./Modal";
 import Button from "./Button";
 import Input from "./Input";
 import LinkifiedText from "./LinkifiedText";
-import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
-import { parseResponseBody, getErrorMessage } from "@/shared/utils/api";
-import { isCredentialBlob, submitCredentialBlob } from "@/shared/components/oauthBlobSubmit";
+import { OAuthDeviceCodePanel, OAuthManualInputPanel } from "./OAuthModalPanels";
+
+export { formatDeviceCodeRemaining } from "./OAuthModalPanels";
 
 const GOOGLE_OAUTH_PROVIDERS = new Set(["antigravity", "agy"]);
 
@@ -28,12 +32,6 @@ const DEVICE_CODE_PROVIDERS = new Set([
 
 const TOKEN_PASTE_PROVIDERS = new Set(["devin-desktop", "devin-cli", "grok-cli"]);
 const IMPORT_TOKEN_ONLY_PROVIDERS = new Set(["devin-desktop", "devin-cli"]);
-
-export function formatDeviceCodeRemaining(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  return `${minutes}:${String(safeSeconds % 60).padStart(2, "0")}`;
-}
 
 type OAuthModalProps = {
   isOpen: boolean;
@@ -78,7 +76,6 @@ export default function OAuthModal({
   const importTokenOnly = IMPORT_TOKEN_ONLY_PROVIDERS.has(provider);
   const popupRef = useRef(null);
   const deviceFlowRunRef = useRef(0);
-  const { copied, copy } = useCopyToClipboard();
   const deviceVerificationUrl =
     deviceData?.verification_uri_complete || deviceData?.verification_uri || "";
 
@@ -880,158 +877,27 @@ export default function OAuthModal({
 
             {/* Device Code Flow - Waiting */}
             {step === "waiting" && isDeviceCode && deviceData && (
-              <>
-                <div className="text-center py-4">
-                  <p className="text-sm text-text-muted mb-4">{t("deviceCodeVisitUrl")}</p>
-                  <div className="bg-sidebar p-4 rounded-lg mb-4">
-                    <p className="text-xs text-text-muted mb-1">{t("deviceCodeVerificationUrl")}</p>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={deviceVerificationUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex-1 text-sm break-all text-primary hover:underline"
-                      >
-                        {deviceVerificationUrl}
-                      </a>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        icon={copied === "verify_url" ? "check" : "content_copy"}
-                        onClick={() => copy(deviceVerificationUrl, "verify_url")}
-                      />
-                    </div>
-                  </div>
-                  <div className="bg-primary/10 p-4 rounded-lg">
-                    <p className="text-xs text-text-muted mb-1">{t("deviceCodeYourCode")}</p>
-                    <div className="flex items-center justify-center gap-2">
-                      <p className="text-2xl font-mono font-bold text-primary">
-                        {deviceData.user_code}
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        icon={copied === "user_code" ? "check" : "content_copy"}
-                        onClick={() => copy(deviceData.user_code, "user_code")}
-                      />
-                    </div>
-                    {deviceCodeSecondsRemaining !== null && (
-                      <div
-                        className="mt-3 flex items-center justify-center gap-1 text-xs text-text-muted"
-                        aria-label={t("deviceCodeWaiting")}
-                      >
-                        <span className="material-symbols-outlined text-sm">schedule</span>
-                        <span>{formatDeviceCodeRemaining(deviceCodeSecondsRemaining)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {polling && (
-                  <div className="flex items-center justify-center gap-2 text-sm text-text-muted">
-                    <span className="material-symbols-outlined animate-spin">
-                      progress_activity
-                    </span>
-                    {t("deviceCodeWaiting")}
-                  </div>
-                )}
-              </>
+              <OAuthDeviceCodePanel
+                deviceData={deviceData}
+                verificationUrl={deviceVerificationUrl}
+                secondsRemaining={deviceCodeSecondsRemaining}
+                polling={polling}
+              />
             )}
 
             {/* Manual Input Step */}
             {step === "input" && !isDeviceCode && (
-              <>
-                <div className="space-y-4">
-                  {/* Remote/LAN server info for Google OAuth providers */}
-                  {!isTrueLocalhost && GOOGLE_OAUTH_PROVIDERS.has(provider) && (
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
-                      <span className="material-symbols-outlined text-sm align-middle mr-1">
-                        warning
-                      </span>
-                      <strong>
-                        {t.rich("googleOAuthWarning", {
-                          code: (c) => <code className="font-mono">{c}</code>,
-                          a: (c) => (
-                            <a
-                              href="https://github.com/diegosouzapw/OmniRoute#oauth-on-a-remote-server"
-                              target="_blank"
-                              rel="noreferrer"
-                              className="underline"
-                            >
-                              {c}
-                            </a>
-                          ),
-                        })}
-                      </strong>
-                    </div>
-                  )}
-                  {/* Actionable remote paste instruction — shown for ALL remote providers,
-                      including Google OAuth (antigravity/agy). The Google
-                      loopback creds redirect to 127.0.0.1:<port>/callback, which on a
-                      remotely-accessed dashboard lands on the operator's own machine and
-                      shows a "can't reach this page" error. That is expected: the URL bar
-                      still carries ?code=…, and pasting it below completes the login. Before
-                      this, Google providers only saw the discouraging loopback warning and
-                      never the "copy the URL and paste it" step, so remote login appeared to
-                      hang. */}
-                  {!isTrueLocalhost && (
-                    <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-200">
-                      <span className="material-symbols-outlined text-sm align-middle mr-1">
-                        info
-                      </span>
-                      {t("remoteAccessInfo")}
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-sm font-medium mb-2">{t("step1OpenUrl")}</p>
-                    <div className="flex gap-2">
-                      <Input
-                        value={authData?.authUrl || ""}
-                        readOnly
-                        className="flex-1 font-mono text-xs"
-                      />
-                      <Button
-                        variant="secondary"
-                        icon={copied === "auth_url" ? "check" : "content_copy"}
-                        onClick={() => copy(authData?.authUrl, "auth_url")}
-                      >
-                        {t("copy")}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-medium mb-2">{t("step2PasteCallback")}</p>
-                    <p className="text-xs text-text-muted mb-2">
-                      {t.rich("step2Hint", {
-                        code: (c) => <code className="font-mono">{c}</code>,
-                      })}
-                    </p>
-                    <Input
-                      value={callbackUrl}
-                      onChange={(e) => setCallbackUrl(e.target.value)}
-                      placeholder={
-                        provider === "claude" || provider === "cline"
-                          ? "code#state or /callback?code=..."
-                          : placeholderUrl
-                      }
-                      className="font-mono text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleManualSubmit}
-                    fullWidth
-                    disabled={!callbackUrl || (!authData && !isCredentialBlob(callbackUrl))}
-                  >
-                    {t("connect")}
-                  </Button>
-                  <Button onClick={handleClose} variant="ghost" fullWidth>
-                    {t("cancel")}
-                  </Button>
-                </div>
-              </>
+              <OAuthManualInputPanel
+                provider={provider}
+                isTrueLocalhost={isTrueLocalhost}
+                authUrl={authData?.authUrl || ""}
+                callbackUrl={callbackUrl}
+                placeholderUrl={placeholderUrl}
+                canSubmit={Boolean(callbackUrl && (authData || isCredentialBlob(callbackUrl)))}
+                onCallbackUrlChange={setCallbackUrl}
+                onSubmit={handleManualSubmit}
+                onClose={handleClose}
+              />
             )}
           </>
         )}
