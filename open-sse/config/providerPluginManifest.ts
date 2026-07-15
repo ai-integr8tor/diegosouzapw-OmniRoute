@@ -56,6 +56,31 @@ export interface ProviderPluginManifest {
 
 const SIDECAR_COMPATIBLE_EXECUTORS = new Set(["default"]);
 
+const LOCAL_SERVICE_DEFAULTS = {
+  "9router": {
+    host: "127.0.0.1",
+    port: 20130,
+  },
+  cliproxyapi: {
+    host: "127.0.0.1",
+    port: 8317,
+  },
+} as const;
+
+function toIntPort(value: string | undefined, fallback: number): number {
+  const parsed = parseInt(value ?? "", 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function resolveLocalServiceBaseUrl(service: keyof typeof LOCAL_SERVICE_DEFAULTS): string {
+  const defaults = LOCAL_SERVICE_DEFAULTS[service];
+  const hostEnv = service === "9router" ? process.env.NINEROUTER_HOST : process.env.CLIPROXYAPI_HOST;
+  const portEnv = service === "9router" ? process.env.NINEROUTER_PORT : process.env.CLIPROXYAPI_PORT;
+  const host = hostEnv || defaults.host;
+  const port = toIntPort(portEnv, defaults.port);
+  return `http://${host}:${port}`;
+}
+
 function compactObject<T extends Record<string, unknown>>(value: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
@@ -129,6 +154,65 @@ function capabilitiesFor(entry: RegistryEntry, eligible: boolean): ProviderPlugi
   return [...capabilities].sort();
 }
 
+function createServicePluginManifestEntries(): ProviderPluginManifestEntry[] {
+  const nineRouterBaseUrl = resolveLocalServiceBaseUrl("9router");
+  const cliproxyapiBaseUrl = resolveLocalServiceBaseUrl("cliproxyapi");
+
+  return [
+    {
+      id: "9router",
+      format: "openai",
+      executor: "9router",
+      auth: {
+        type: "apikey",
+        header: "bearer",
+      },
+      endpoints: {
+        baseUrl: `${nineRouterBaseUrl}/v1/chat/completions`,
+        baseUrls: [
+          `${nineRouterBaseUrl}/v1/chat/completions`,
+          `${nineRouterBaseUrl}/v1/messages`,
+        ],
+        responsesBaseUrl: `${nineRouterBaseUrl}/v1/responses`,
+        modelsUrl: `${nineRouterBaseUrl}/v1/models`,
+      },
+      capabilities: ["apikey", "custom-executor"],
+      passthroughModels: false,
+      models: [],
+      sidecar: {
+        eligible: false,
+        reasons: ["local service backend: nine-router custom executor"],
+      },
+    },
+    {
+      id: "cliproxyapi",
+      format: "openai",
+      executor: "cliproxyapi",
+      auth: {
+        type: "apikey",
+        header: "bearer",
+      },
+      endpoints: {
+        baseUrl: `${cliproxyapiBaseUrl}/v1/chat/completions`,
+        baseUrls: [
+          `${cliproxyapiBaseUrl}/v1/chat/completions`,
+          `${cliproxyapiBaseUrl}/v1/messages`,
+        ],
+        responsesBaseUrl: `${cliproxyapiBaseUrl}/v1/responses`,
+        modelsUrl: `${cliproxyapiBaseUrl}/v1/models`,
+        chatPath: "/v1/messages",
+      },
+      capabilities: ["apikey", "custom-executor"],
+      passthroughModels: false,
+      models: [],
+      sidecar: {
+        eligible: false,
+        reasons: ["local service backend: CLIProxyAPI custom executor"],
+      },
+    },
+  ];
+}
+
 export function createProviderPluginManifestEntry(
   entry: RegistryEntry,
 ): ProviderPluginManifestEntry {
@@ -165,12 +249,22 @@ export function createProviderPluginManifestEntry(
 export function generateProviderPluginManifestFromRegistry(
   registry: Record<string, RegistryEntry>,
 ): ProviderPluginManifest {
+  const serviceEntries = createServicePluginManifestEntries();
+
+  const manifestEntries: ProviderPluginManifestEntry[] = Object.values(registry)
+    .map(createProviderPluginManifestEntry)
+    .filter((entry) =>
+      !serviceEntries.some((service) => service.id === entry.id)
+    );
+
+  for (const serviceEntry of serviceEntries) {
+    manifestEntries.push(serviceEntry);
+  }
+
   return {
     schemaVersion: 1,
     generatedFrom: "open-sse/config/providers",
-    providers: Object.values(registry)
-      .map(createProviderPluginManifestEntry)
-      .sort((a, b) => a.id.localeCompare(b.id)),
+    providers: manifestEntries.sort((a, b) => a.id.localeCompare(b.id)),
   };
 }
 

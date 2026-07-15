@@ -73,7 +73,7 @@ test("provider plugin manifest is JSON-safe and stable enough for sidecars", () 
 
   assert.equal(roundTripped.schemaVersion, 1);
   assert.equal(roundTripped.generatedFrom, "open-sse/config/providers");
-  assert.equal(roundTripped.providers.length, 4);
+  assert.equal(roundTripped.providers.length, 6);
   assert.deepEqual(
     roundTripped.providers.map((provider: { id: string }) => provider.id),
     [...roundTripped.providers.map((provider: { id: string }) => provider.id)].sort(),
@@ -117,5 +117,80 @@ test("manifest does not export OAuth client secrets or dynamic functions", () =>
     assert.equal("headers" in provider, false);
     assert.equal("extraHeaders" in provider, false);
     assert.equal("requestDefaults" in provider, false);
+  }
+});
+
+test("manifest exposes service backends as plugin-style entries", () => {
+  const manifest = generateProviderPluginManifestFromRegistry(registryFixture);
+  const nineRouter = manifest.providers.find((provider) => provider.id === "9router");
+  const cliproxyapi = manifest.providers.find((provider) => provider.id === "cliproxyapi");
+
+  assert.ok(nineRouter);
+  assert.equal(nineRouter.executor, "9router");
+  assert.ok(nineRouter.capabilities.includes("custom-executor"));
+  assert.equal(nineRouter.sidecar.eligible, false);
+  assert.ok(nineRouter.sidecar.reasons.some((reason) => reason.includes("nine-router")));
+
+  assert.ok(cliproxyapi);
+  assert.equal(cliproxyapi.executor, "cliproxyapi");
+  assert.ok(cliproxyapi.capabilities.includes("custom-executor"));
+  assert.equal(cliproxyapi.sidecar.eligible, false);
+  assert.ok(cliproxyapi.sidecar.reasons.some((reason) => reason.includes("CLIProxyAPI")));
+});
+
+test("service plugin manifests follow local service host/port environment overrides", () => {
+  const previousEnv = {
+    NINEROUTER_HOST: process.env.NINEROUTER_HOST,
+    NINEROUTER_PORT: process.env.NINEROUTER_PORT,
+    CLIPROXYAPI_HOST: process.env.CLIPROXYAPI_HOST,
+    CLIPROXYAPI_PORT: process.env.CLIPROXYAPI_PORT,
+  };
+
+  process.env.NINEROUTER_HOST = "10.10.10.10";
+  process.env.NINEROUTER_PORT = "54321";
+  process.env.CLIPROXYAPI_HOST = "10.10.10.20";
+  process.env.CLIPROXYAPI_PORT = "65432";
+
+  try {
+    const manifest = generateProviderPluginManifestFromRegistry(registryFixture);
+    const nineRouter = manifest.providers.find((provider) => provider.id === "9router");
+    const cliproxyapi = manifest.providers.find((provider) => provider.id === "cliproxyapi");
+
+    assert.ok(nineRouter);
+    assert.ok(cliproxyapi);
+    assert.equal(nineRouter.endpoints.baseUrl, "http://10.10.10.10:54321/v1/chat/completions");
+    assert.equal(
+      nineRouter.endpoints.modelsUrl,
+      "http://10.10.10.10:54321/v1/models"
+    );
+    assert.equal(
+      cliproxyapi.endpoints.baseUrl,
+      "http://10.10.10.20:65432/v1/chat/completions"
+    );
+    assert.equal(
+      cliproxyapi.endpoints.modelsUrl,
+      "http://10.10.10.20:65432/v1/models"
+    );
+  } finally {
+    if (previousEnv.NINEROUTER_HOST === undefined) {
+      delete process.env.NINEROUTER_HOST;
+    } else {
+      process.env.NINEROUTER_HOST = previousEnv.NINEROUTER_HOST;
+    }
+    if (previousEnv.NINEROUTER_PORT === undefined) {
+      delete process.env.NINEROUTER_PORT;
+    } else {
+      process.env.NINEROUTER_PORT = previousEnv.NINEROUTER_PORT;
+    }
+    if (previousEnv.CLIPROXYAPI_HOST === undefined) {
+      delete process.env.CLIPROXYAPI_HOST;
+    } else {
+      process.env.CLIPROXYAPI_HOST = previousEnv.CLIPROXYAPI_HOST;
+    }
+    if (previousEnv.CLIPROXYAPI_PORT === undefined) {
+      delete process.env.CLIPROXYAPI_PORT;
+    } else {
+      process.env.CLIPROXYAPI_PORT = previousEnv.CLIPROXYAPI_PORT;
+    }
   }
 });
