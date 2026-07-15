@@ -61,6 +61,13 @@ export function assembleStreamingPipeline(
   },
   deps: StreamingPipelineDeps = DEFAULT_DEPS
 ) {
+  // Perf instrumentation: clear any stale marks/measure from a previous call before
+  // re-marking, so getEntriesByName() always reflects only the most recent assembly.
+  performance.clearMarks("omni-pipeline-start");
+  performance.clearMarks("omni-pipeline-end");
+  performance.clearMeasures("omni-pipeline");
+  performance.mark("omni-pipeline-start");
+
   // ── Phase 9.3: Progress tracking (opt-in) ──
   const progressEnabled = deps.wantsProgress(args.clientRawRequestHeaders);
   let finalStream;
@@ -95,5 +102,7 @@ export function assembleStreamingPipeline(
   if (args.echoModel) {
     finalStream = finalStream.pipeThrough(deps.createModelEchoTransform(args.echoModel));
   }
+  performance.mark("omni-pipeline-end");
+  performance.measure("omni-pipeline", "omni-pipeline-start", "omni-pipeline-end");
   return finalStream;
 }
