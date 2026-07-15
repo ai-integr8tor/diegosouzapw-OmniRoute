@@ -8,7 +8,9 @@
 //     correct account count ("N account(s)").
 //  2. Each provider group's cards auto-fit into as many 280px columns as that
 //     group's actual width supports, while a card can shrink to the group's
-//     width when its container is narrower than 280px.
+//     width when its container is narrower than 280px (this also keeps the
+//     phone-width mobile fallback #7072 restored, since a container under
+//     280px collapses the columns to one).
 //  3. Provider groups themselves flow into multiple columns on wide screens
 //     (`columns-*`) instead of an unconditional vertical `flex flex-col`
 //     stack.
@@ -116,7 +118,7 @@ test("QuotaCardGrid (#3520) — cards follow actual group width with a narrow-co
   );
   assert.doesNotMatch(
     cardGridClassName,
-    /(?:^|\s)(?:grid-cols-2|md:grid-cols-3|xl:grid-cols-4)(?:\s|$)/
+    /(?:^|\s)(?:grid-cols-1|sm:grid-cols-2|grid-cols-2|md:grid-cols-3|xl:grid-cols-4)(?:\s|$)/
   );
 });
 
