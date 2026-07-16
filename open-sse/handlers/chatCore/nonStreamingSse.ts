@@ -128,7 +128,10 @@ function hasGeminiTerminalFinishReason(parsed: unknown): boolean {
   const candidate = candidates[0];
   if (!candidate || typeof candidate !== "object") return false;
   const finishReason = (candidate as { finishReason?: unknown }).finishReason;
-  return typeof finishReason === "string" && GEMINI_TERMINAL_FINISH_REASONS.has(finishReason.toLowerCase());
+  return (
+    typeof finishReason === "string" &&
+    GEMINI_TERMINAL_FINISH_REASONS.has(finishReason.toLowerCase())
+  );
 }
 
 function processNonStreamingSseTerminalLine(
@@ -162,6 +165,13 @@ function processNonStreamingSseTerminalLine(
   // be a typed terminal.
   if (
     !data.includes('"type"') &&
+    // NOTE: "finishReason" is a superset match -- it triggers JSON.parse on
+    // every Gemini chunk that happens to contain the string (e.g. partial
+    // candidate payloads), not just the terminal one.  This is intentional:
+    // the extra parses are cheap compared to the CPU-runaway we'd get from
+    // parsing ALL chunks unconditionally on large buffered responses, and
+    // the superset is safe (false positives just parse a non-terminal chunk
+    // and fall through to `return false`).
     !data.includes('"finishReason"') &&
     !(state.currentEvent === "message_delta" && data.includes("stop_reason"))
   ) {

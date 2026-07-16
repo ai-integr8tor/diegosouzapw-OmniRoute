@@ -834,8 +834,12 @@ export function parseSSEToResponsesOutput(rawSSE, fallbackModel) {
  *   data: {"remainingCredits":[...]}
  *
  * Reuses the same parsing logic as processAntigravitySSEPayload() in sseCollect.ts
- * so that format conversion is byte-identical to the previous collectStreamToResponse()
- * approach.
+ * so that format conversion is functionally equivalent to the previous
+ * collectStreamToResponse() approach.  Intentional differences:
+ *   - remainingCredits is NOT embedded into the result (handled separately
+ *     by the credits-extraction TransformStream in antigravity.ts).
+ *   - The synthetic `id` uses `chatcmpl-${Date.now()}` (no UUID suffix)
+ *     because this path runs once per response, not per chunk.
  */
 export function parseSSEToGeminiResponse(
   rawSSE: string,
@@ -856,14 +860,11 @@ export function parseSSEToGeminiResponse(
   const toolCalls: AccumulatedToolCall[] = [];
 
   const stripZeroWidth = (value: unknown): unknown => {
-    if (typeof value === "string")
-      return value.replace(/[\u200B-\u200D\uFEFF]/g, "");
+    if (typeof value === "string") return value.replace(/[\u200B-\u200D\uFEFF]/g, "");
     return value;
   };
 
-  const tryParseTextualToolCall = (
-    text: string
-  ): { name: string; args: unknown } | null => {
+  const tryParseTextualToolCall = (text: string): { name: string; args: unknown } | null => {
     const normalized = text.replace(/[\u200B-\u200D\uFEFF]/g, "");
     const match = normalized.match(
       /^[\s\S]*?\[Tool call:\s*([^\]\n]+)\]\s*\nArguments:\s*([\s\S]+?)\s*$/
@@ -904,11 +905,7 @@ export function parseSSEToGeminiResponse(
       const candidate = parsed?.response?.candidates?.[0];
       if (candidate?.content?.parts) {
         for (const part of candidate.content.parts) {
-          if (
-            typeof part.text === "string" &&
-            !part.thought &&
-            !part.thoughtSignature
-          ) {
+          if (typeof part.text === "string" && !part.thought && !part.thoughtSignature) {
             const textualToolCall = tryParseTextualToolCall(part.text);
             if (textualToolCall) {
               toolCalls.push({

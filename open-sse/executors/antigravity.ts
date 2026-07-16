@@ -272,6 +272,87 @@ export function updateAntigravityRemainingCredits(accountId: string, balance: nu
   } catch {}
 }
 
+/**
+ * Create a pass-through TransformStream that extracts `remainingCredits`
+ * from SSE data without consuming the stream.  The downstream client
+ * receives the unmodified bytes.
+ *
+ * @param accountId  Provider account ID for credit-balance persistence.
+ * @param bufferSize  Optional sliding-window buffer cap in bytes.
+ *                   Pass 0 or omit for unlimited (non-streaming callers
+ *                   where the full body is already buffered upstream).
+ *                   The streaming path uses 16384 (16 KB) to prevent OOM
+ *                   on long-lived SSE connections.
+ * @internal Exported for unit testing only.
+ */
+export function createCreditsExtractionTransform(
+  accountId: string,
+  bufferSize = 0
+): TransformStream<Uint8Array, Uint8Array> {
+  let buffer = "";
+  const decoder = new TextDecoder();
+
+  return new TransformStream(
+    {
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+        try {
+          buffer += decoder.decode(chunk, { stream: true });
+          // Sliding-window cap: truncate after the last complete newline
+          // in the discard region so SSE lines are never split mid-payload.
+          if (bufferSize > 0 && buffer.length > bufferSize) {
+            const lastNewline = buffer.lastIndexOf("\n", buffer.length - bufferSize);
+            if (lastNewline !== -1) {
+              buffer = buffer.slice(lastNewline + 1);
+            } else {
+              // No newline in the discard region -- incomplete line, discard entirely.
+              buffer = "";
+            }
+          }
+        } catch {
+          /* decoding best-effort */
+        }
+      },
+      flush() {
+        try {
+          buffer += decoder.decode();
+        } catch {
+          /* decoding best-effort */
+        }
+        try {
+          const lines = buffer.split("\n");
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const payload = trimmed.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(payload);
+              if (Array.isArray(parsed?.remainingCredits)) {
+                const googleCredit = parsed.remainingCredits.find((c: unknown) => {
+                  const credit = asRecord(c);
+                  return credit?.creditType === "GOOGLE_ONE_AI";
+                }) as AntigravityCreditEntry | undefined;
+                if (googleCredit) {
+                  const balance = parseInt(String(googleCredit.creditAmount ?? ""), 10);
+                  if (!isNaN(balance)) updateAntigravityRemainingCredits(accountId, balance);
+                }
+              }
+            } catch {
+              /* skip malformed lines */
+            }
+          }
+        } catch {
+          /* credits extraction is best-effort */
+        }
+        buffer = "";
+      },
+    },
+    { highWaterMark: 16384 },
+    { highWaterMark: 16384 }
+  );
+}
+
 function isCreditsExhausted(accountId: string): boolean {
   const until = creditsExhaustedUntil.get(accountId);
   if (!until) return false;
@@ -931,6 +1012,10 @@ export class AntigravityExecutor extends BaseExecutor {
    * Collect an SSE streaming response into a single non-streaming JSON response.
    * Parses Gemini-format SSE chunks and assembles text content + usage into one
    * OpenAI-format chat.completion payload.
+   *
+   * @deprecated Use the non-streaming SSE path in chatCore instead, which calls
+   * parseSSEToGeminiResponse() from sseParser.ts.  This method is retained only
+   * for backward compatibility and may be removed in a future release.
    */
   collectStreamToResponse(
     response: Response,
@@ -1378,45 +1463,8 @@ export class AntigravityExecutor extends BaseExecutor {
                     if (!stream && creditsResp.body) {
                       // Return raw SSE with credits extraction -- same pattern
                       // as the main non-streaming path.
-                      let crSseBuffer = "";
-                      const crDecoder = new TextDecoder();
-                      const crPassThrough = new TransformStream(
-                        {
-                          transform(chunk, controller) {
-                            controller.enqueue(chunk);
-                            try {
-                              crSseBuffer += crDecoder.decode(chunk, { stream: true });
-                            } catch { /* best-effort */ }
-                          },
-                          flush() {
-                            try { crSseBuffer += crDecoder.decode(); } catch { /* best-effort */ }
-                            try {
-                              for (const line of crSseBuffer.split("\n")) {
-                                const trimmed = line.trim();
-                                if (!trimmed.startsWith("data:")) continue;
-                                const payload = trimmed.slice(5).trim();
-                                if (!payload || payload === "[DONE]") continue;
-                                try {
-                                  const parsed = JSON.parse(payload);
-                                  if (Array.isArray(parsed?.remainingCredits)) {
-                                    const googleCredit = parsed.remainingCredits.find(
-                                      (c: unknown) => (asRecord(c) as AntigravityCreditEntry)?.creditType === "GOOGLE_ONE_AI"
-                                    ) as AntigravityCreditEntry | undefined;
-                                    if (googleCredit) {
-                                      const balance = parseInt(String(googleCredit.creditAmount ?? ""), 10);
-                                      if (!isNaN(balance)) updateAntigravityRemainingCredits(accountId, balance);
-                                    }
-                                  }
-                                } catch { /* skip malformed */ }
-                              }
-                            } catch { /* best-effort */ }
-                            crSseBuffer = "";
-                          },
-                        },
-                        { highWaterMark: 16384 },
-                        { highWaterMark: 16384 }
-                      );
-                      const crTappedBody = creditsResp.body.pipeThrough(crPassThrough);
+                      const crTransform = createCreditsExtractionTransform(accountId);
+                      const crTappedBody = creditsResp.body.pipeThrough(crTransform);
                       return {
                         response: new Response(crTappedBody, {
                           status: creditsResp.status,
@@ -1608,61 +1656,9 @@ export class AntigravityExecutor extends BaseExecutor {
 
             // Tap the stream to extract remainingCredits while passing
             // data through unmodified.  chatCore drains the full body.
-            let nsSseBuffer = "";
-            const nsDecoder = new TextDecoder();
-            const nsPassThrough = new TransformStream(
-              {
-                transform(chunk, controller) {
-                  controller.enqueue(chunk);
-                  try {
-                    nsSseBuffer += nsDecoder.decode(chunk, { stream: true });
-                  } catch {
-                    /* decoding best-effort */
-                  }
-                },
-                flush() {
-                  try {
-                    nsSseBuffer += nsDecoder.decode();
-                  } catch {
-                    /* decoding best-effort */
-                  }
-                  try {
-                    const lines = nsSseBuffer.split("\n");
-                    for (const line of lines) {
-                      const trimmed = line.trim();
-                      if (!trimmed.startsWith("data:")) continue;
-                      const payload = trimmed.slice(5).trim();
-                      if (!payload || payload === "[DONE]") continue;
-                      try {
-                        const parsed = JSON.parse(payload);
-                        if (Array.isArray(parsed?.remainingCredits)) {
-                          const googleCredit = parsed.remainingCredits.find(
-                            (c: unknown) => {
-                              const credit = asRecord(c);
-                              return credit?.creditType === "GOOGLE_ONE_AI";
-                            }
-                          ) as AntigravityCreditEntry | undefined;
-                          if (googleCredit) {
-                            const balance = parseInt(
-                              String(googleCredit.creditAmount ?? ""),
-                              10
-                            );
-                            if (!isNaN(balance))
-                              updateAntigravityRemainingCredits(accountId, balance);
-                          }
-                        }
-                      } catch {
-                        /* skip malformed lines */
-                      }
-                    }
-                  } catch {
-                    /* credits extraction is best-effort */
-                  }
-                  nsSseBuffer = "";
-                },
-              },
-              { highWaterMark: 16384 },
-              { highWaterMark: 16384 }
+            const nsPassThrough = createCreditsExtractionTransform(
+              accountId,
+              16 * 1024 // 16KB sliding-window cap to prevent OOM
             );
             const tappedBody = response.body.pipeThrough(nsPassThrough);
             return {
@@ -1705,81 +1701,9 @@ export class AntigravityExecutor extends BaseExecutor {
             }
           }
 
-          let sseBuffer = "";
-          const decoder = new TextDecoder(); // Singleton for correct streaming decode
-          const MAX_BUFFER_SIZE = 16 * 1024; // Limit to prevent OOM on large streams
-
-          const passThrough = new TransformStream(
-            {
-              transform(chunk, controller) {
-                controller.enqueue(chunk);
-                // Accumulate text to scan for remainingCredits
-                try {
-                  const text = decoder.decode(chunk, { stream: true });
-                  sseBuffer += text;
-                  // Limit buffer size to prevent unbounded growth
-                  // Truncate only after a complete newline to avoid splitting SSE lines mid-payload
-                  if (sseBuffer.length > MAX_BUFFER_SIZE) {
-                    const lastNewline = sseBuffer.lastIndexOf(
-                      "\n",
-                      sseBuffer.length - MAX_BUFFER_SIZE
-                    );
-                    if (lastNewline !== -1) {
-                      sseBuffer = sseBuffer.slice(lastNewline + 1);
-                    } else {
-                      // No newline found in discard region — buffer contains an incomplete SSE line.
-                      // Discard it entirely to avoid returning malformed data; the remainingCredits
-                      // parser won't find valid data in a truncated line anyway.
-                      sseBuffer = "";
-                    }
-                  }
-                } catch {
-                  /* decoding best-effort */
-                }
-              },
-              flush() {
-                // Final decode for any remaining bytes
-                try {
-                  const text = decoder.decode(); // Flush pending bytes
-                  sseBuffer += text;
-                } catch {
-                  /* decoding best-effort */
-                }
-
-                // Parse the accumulated SSE data for remainingCredits
-                try {
-                  const lines = sseBuffer.split("\n");
-                  for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed.startsWith("data:")) continue;
-                    const payload = trimmed.slice(5).trim();
-                    if (!payload || payload === "[DONE]") continue;
-                    try {
-                      const parsed = JSON.parse(payload);
-                      if (Array.isArray(parsed?.remainingCredits)) {
-                        const googleCredit = parsed.remainingCredits.find((c: unknown) => {
-                          const credit = asRecord(c);
-                          return credit?.creditType === "GOOGLE_ONE_AI";
-                        }) as AntigravityCreditEntry | undefined;
-                        if (googleCredit) {
-                          const balance = parseInt(String(googleCredit.creditAmount ?? ""), 10);
-                          if (!isNaN(balance)) {
-                            updateAntigravityRemainingCredits(accountId, balance);
-                          }
-                        }
-                      }
-                    } catch {
-                      /* skip malformed lines */
-                    }
-                  }
-                } catch {
-                  /* credits extraction is best-effort */
-                }
-                sseBuffer = "";
-              },
-            },
-            { highWaterMark: 16384 },
-            { highWaterMark: 16384 }
+          const passThrough = createCreditsExtractionTransform(
+            accountId,
+            16 * 1024 // 16KB sliding-window cap to prevent OOM
           );
           const tappedBody = response.body.pipeThrough(passThrough);
           const tappedResponse = new Response(tappedBody, {
