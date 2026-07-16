@@ -19,12 +19,7 @@ const CLOUD_ACTION_TIMEOUT_MS = 15000;
 
 type TranslationValues = Record<string, string | number | boolean | Date>;
 type CloudflaredTunnelPhase =
-  | "unsupported"
-  | "not_installed"
-  | "stopped"
-  | "starting"
-  | "running"
-  | "error";
+  "unsupported" | "not_installed" | "stopped" | "starting" | "running" | "error";
 
 type CloudflaredTunnelStatus = {
   supported: boolean;
@@ -43,12 +38,7 @@ type CloudflaredTunnelStatus = {
 };
 
 type TailscaleTunnelPhase =
-  | "unsupported"
-  | "not_installed"
-  | "needs_login"
-  | "stopped"
-  | "running"
-  | "error";
+  "unsupported" | "not_installed" | "needs_login" | "stopped" | "running" | "error";
 
 type TailscaleTunnelStatus = {
   supported: boolean;
@@ -70,13 +60,7 @@ type TailscaleTunnelStatus = {
 };
 
 type NgrokTunnelPhase =
-  | "unsupported"
-  | "not_installed"
-  | "stopped"
-  | "needs_auth"
-  | "starting"
-  | "running"
-  | "error";
+  "unsupported" | "not_installed" | "stopped" | "needs_auth" | "starting" | "running" | "error";
 
 type NgrokTunnelStatus = {
   supported: boolean;
@@ -1252,7 +1236,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         options={ENDPOINT_TABS}
         value={activeEndpointTab}
         onChange={(value) => setActiveEndpointTab(value as EndpointTab)}
-        aria-label="Endpoint sections"
+        aria-label={t("endpointSections")}
         className="w-fit"
       />
 

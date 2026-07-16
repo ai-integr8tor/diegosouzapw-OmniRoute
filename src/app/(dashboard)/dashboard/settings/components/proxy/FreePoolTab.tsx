@@ -22,6 +22,7 @@ const MAX_VISIBLE_PAGES = 7;
 
 export default function FreePoolTab() {
   const t = useTranslations("settings");
+  const tc = useTranslations("common");
   const [proxies, setProxies] = useState<FreeProxyRowData[]>([]);
   const [stats, setStats] = useState<FreePoolStats | null>(null);
   const [disabledSources, setDisabledSources] = useState<Set<SourceId>>(new Set());
@@ -160,7 +161,7 @@ export default function FreePoolTab() {
 
   const handleBulkAdd = async (ids: string[]) => {
     if (!ids.length) return;
-    setBulkProgress("Testing proxies...");
+    setBulkProgress(t("proxyFreePoolTesting"));
     try {
       const res = await fetch("/api/settings/free-proxies/bulk-add-to-pool", {
         method: "POST",
@@ -168,7 +169,12 @@ export default function FreePoolTab() {
         body: JSON.stringify({ ids }),
       });
       const data = await res.json();
-      setBulkProgress(`${data.succeeded ?? 0} added, ${data.failed ?? 0} failed`);
+      setBulkProgress(
+        t("proxyFreePoolBulkResult", {
+          succeeded: data.succeeded ?? 0,
+          failed: data.failed ?? 0,
+        })
+      );
       await loadData();
       setSelected(new Set());
     } catch {}
@@ -374,7 +380,7 @@ export default function FreePoolTab() {
             type="button"
             onClick={() => handlePageChange(page - 1)}
             disabled={page <= 1}
-            aria-label="Previous page"
+            aria-label={tc("previousPage")}
           >
             &laquo;
           </button>
@@ -402,7 +408,7 @@ export default function FreePoolTab() {
             type="button"
             onClick={() => handlePageChange(page + 1)}
             disabled={page >= totalPages}
-            aria-label="Next page"
+            aria-label={tc("nextPage")}
           >
             &raquo;
           </button>
@@ -412,8 +418,8 @@ export default function FreePoolTab() {
       {/* Per-page summary */}
       <div className="text-center text-xs text-text-muted">
         {total > 0
-          ? `Page ${page} of ${totalPages} (${total} total proxies)`
-          : `${total} total proxies`}
+          ? t("proxyFreePoolPageSummary", { page, totalPages, total })
+          : t("proxyFreePoolTotalSummary", { total })}
       </div>
     </div>
   );
