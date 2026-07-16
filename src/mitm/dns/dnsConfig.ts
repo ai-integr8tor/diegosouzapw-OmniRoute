@@ -120,6 +120,7 @@ function hasHostEntry(hostsContent: string, hostname: string): boolean {
  * invocation so the user gets one UAC prompt instead of one per line.
  */
 export async function addDNSEntries(hosts: string[], sudoPassword: string): Promise<void> {
+  if (process.env.OMNIROUTE_SKIP_DNS_WRITE === "1") return;
   const hostsContent = readHostsFile();
   const missingEntries: string[] = [];
 
