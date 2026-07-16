@@ -3,6 +3,7 @@ import {
   parseSSEToResponsesOutput,
   parseSSEToClaudeResponse,
   parseSSEToOpenAIResponse,
+  parseSSEToGeminiResponse,
 } from "../sseParser.ts";
 import { getHeaderValueCaseInsensitive } from "./headers.ts";
 
@@ -20,6 +21,7 @@ export function parseNonStreamingSSEPayload(
   };
 
   queueFormat(preferredFormat);
+  queueFormat(FORMATS.GEMINI);
   queueFormat(FORMATS.OPENAI_RESPONSES);
   queueFormat(FORMATS.CLAUDE);
   queueFormat(FORMATS.OPENAI);
@@ -30,7 +32,9 @@ export function parseNonStreamingSSEPayload(
         ? parseSSEToResponsesOutput(rawBody, fallbackModel)
         : format === FORMATS.CLAUDE
           ? parseSSEToClaudeResponse(rawBody, fallbackModel)
-          : parseSSEToOpenAIResponse(rawBody, fallbackModel);
+          : format === FORMATS.GEMINI || format === FORMATS.ANTIGRAVITY
+            ? parseSSEToGeminiResponse(rawBody, fallbackModel)
+            : parseSSEToOpenAIResponse(rawBody, fallbackModel);
     if (parsed && typeof parsed === "object") {
       return {
         body: parsed as Record<string, unknown>,
@@ -107,6 +111,26 @@ function hasClaudeTerminalMessageDelta(parsed: unknown, eventType: string): bool
   return typeof stopReason === "string" ? stopReason.length > 0 : stopReason != null;
 }
 
+const GEMINI_TERMINAL_FINISH_REASONS = new Set([
+  "stop",
+  "safety",
+  "recitation",
+  "other",
+  "max_tokens",
+]);
+
+function hasGeminiTerminalFinishReason(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== "object") return false;
+  const response = (parsed as { response?: unknown }).response;
+  if (!response || typeof response !== "object") return false;
+  const candidates = (response as { candidates?: unknown[] }).candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return false;
+  const candidate = candidates[0];
+  if (!candidate || typeof candidate !== "object") return false;
+  const finishReason = (candidate as { finishReason?: unknown }).finishReason;
+  return typeof finishReason === "string" && GEMINI_TERMINAL_FINISH_REASONS.has(finishReason.toLowerCase());
+}
+
 function processNonStreamingSseTerminalLine(
   state: NonStreamingSseTerminalState,
   rawLine: string
@@ -130,12 +154,15 @@ function processNonStreamingSseTerminalLine(
 
   // Hot-path optimization: the terminal SSE events we look for (message_stop,
   // response.completed, …) all carry a top-level "type" field, OR are signalled by a
-  // preceding `event:` line (Claude). OpenAI chat.completion chunks carry neither and
-  // terminate with `[DONE]` (handled above), so parsing every one of them here is pure
-  // waste that compounds into the CPU-runaway on large buffered responses. Skip the
-  // JSON.parse unless the line could actually be a typed terminal.
+  // preceding `event:` line (Claude). Gemini signals completion via
+  // "finishReason" inside response.candidates[0]. OpenAI chat.completion chunks
+  // carry none of these and terminate with `[DONE]` (handled above), so parsing
+  // every one of them here is pure waste that compounds into the CPU-runaway on
+  // large buffered responses. Skip the JSON.parse unless the line could actually
+  // be a typed terminal.
   if (
     !data.includes('"type"') &&
+    !data.includes('"finishReason"') &&
     !(state.currentEvent === "message_delta" && data.includes("stop_reason"))
   ) {
     return isNonStreamingSseTerminalType(state.currentEvent);
@@ -148,7 +175,9 @@ function processNonStreamingSseTerminalLine(
         ? parsed.type
         : state.currentEvent;
     return (
-      isNonStreamingSseTerminalType(eventType) || hasClaudeTerminalMessageDelta(parsed, eventType)
+      isNonStreamingSseTerminalType(eventType) ||
+      hasClaudeTerminalMessageDelta(parsed, eventType) ||
+      hasGeminiTerminalFinishReason(parsed)
     );
   } catch {
     // Keep reading malformed data so the parser can report a useful upstream error.

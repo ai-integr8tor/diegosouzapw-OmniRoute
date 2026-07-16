@@ -5,6 +5,7 @@ import { AntigravityExecutor } from "../../open-sse/executors/antigravity.ts";
 import { setCliCompatProviders } from "../../open-sse/config/cliFingerprints.ts";
 import { scrubProxyAndFingerprintHeaders } from "../../open-sse/services/antigravityHeaderScrub.ts";
 import { antigravityUserAgent } from "../../open-sse/services/antigravityHeaders.ts";
+import { parseSSEToGeminiResponse } from "../../open-sse/handlers/sseParser.ts";
 import {
   clearAntigravityVersionCache,
   seedAntigravityVersionCache,
@@ -672,7 +673,11 @@ test("AntigravityExecutor.execute auto-retries short 429 responses and collects 
       credentials: { accessToken: "token", projectId: "project-1" },
       log: { debug() {}, warn() {} },
     });
-    const payload = (await result.response.json()) as ChatCompletionPayload;
+    // Non-streaming now returns raw SSE; parse it the way chatCore would.
+    const rawSSE = await result.response.text();
+    const parsed = parseSSEToGeminiResponse(rawSSE, "antigravity/gemini-2.5-flash");
+    assert.ok(parsed, "parseSSEToGeminiResponse should parse the SSE");
+    const payload = parsed as ChatCompletionPayload;
 
     assert.equal(calls.length, 2);
     assert.equal(result.response.status, 200);

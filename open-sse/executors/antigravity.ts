@@ -1375,33 +1375,56 @@ export class AntigravityExecutor extends BaseExecutor {
                   });
                   if (creditsResp.ok || creditsResp.status !== HTTP_STATUS.RATE_LIMITED) {
                     log?.info?.("AG_CREDITS", `Credits retry succeeded: ${creditsResp.status}`);
-                    if (!stream) {
-                      const collected = await this.collectStreamToResponse(
-                        creditsResp,
-                        model,
-                        url,
-                        finalCreditsHeaders,
-                        creditsBody,
-                        log,
-                        signal
+                    if (!stream && creditsResp.body) {
+                      // Return raw SSE with credits extraction -- same pattern
+                      // as the main non-streaming path.
+                      let crSseBuffer = "";
+                      const crDecoder = new TextDecoder();
+                      const crPassThrough = new TransformStream(
+                        {
+                          transform(chunk, controller) {
+                            controller.enqueue(chunk);
+                            try {
+                              crSseBuffer += crDecoder.decode(chunk, { stream: true });
+                            } catch { /* best-effort */ }
+                          },
+                          flush() {
+                            try { crSseBuffer += crDecoder.decode(); } catch { /* best-effort */ }
+                            try {
+                              for (const line of crSseBuffer.split("\n")) {
+                                const trimmed = line.trim();
+                                if (!trimmed.startsWith("data:")) continue;
+                                const payload = trimmed.slice(5).trim();
+                                if (!payload || payload === "[DONE]") continue;
+                                try {
+                                  const parsed = JSON.parse(payload);
+                                  if (Array.isArray(parsed?.remainingCredits)) {
+                                    const googleCredit = parsed.remainingCredits.find(
+                                      (c: unknown) => (asRecord(c) as AntigravityCreditEntry)?.creditType === "GOOGLE_ONE_AI"
+                                    ) as AntigravityCreditEntry | undefined;
+                                    if (googleCredit) {
+                                      const balance = parseInt(String(googleCredit.creditAmount ?? ""), 10);
+                                      if (!isNaN(balance)) updateAntigravityRemainingCredits(accountId, balance);
+                                    }
+                                  }
+                                } catch { /* skip malformed */ }
+                              }
+                            } catch { /* best-effort */ }
+                            crSseBuffer = "";
+                          },
+                        },
+                        { highWaterMark: 16384 },
+                        { highWaterMark: 16384 }
                       );
-                      // Parse _remainingCredits from the synthetic response and cache
-                      try {
-                        const syntheticJson = await collected.response.clone().json();
-                        const rc = syntheticJson?._remainingCredits;
-                        if (Array.isArray(rc)) {
-                          const googleCredit = rc.find((c) => c.creditType === "GOOGLE_ONE_AI");
-                          if (googleCredit) {
-                            const balance = parseInt(googleCredit.creditAmount, 10);
-                            if (!isNaN(balance))
-                              updateAntigravityRemainingCredits(accountId, balance);
-                          }
-                        }
-                      } catch {
-                        /**/
-                      }
+                      const crTappedBody = creditsResp.body.pipeThrough(crPassThrough);
                       return {
-                        ...collected,
+                        response: new Response(crTappedBody, {
+                          status: creditsResp.status,
+                          statusText: creditsResp.statusText,
+                          headers: creditsResp.headers,
+                        }),
+                        url,
+                        headers: finalCreditsHeaders,
                         transformedBody: attachToolNameMap(creditsBody, requestToolNameMap),
                       };
                     }
@@ -1537,12 +1560,16 @@ export class AntigravityExecutor extends BaseExecutor {
           }
         }
 
-        // For non-streaming clients, collect the SSE stream and return a synthetic
-        // non-streaming Response so chatCore doesn't need to handle SSE conversion.
+        // For non-streaming clients, return the raw SSE stream with a
+        // credits-extraction TransformStream.  chatCore's non-streaming path
+        // (readNonStreamingResponseBody + parseNonStreamingSSEPayload with
+        // Gemini format support) handles draining and conversion to JSON.
+        // This replaces the previous collectStreamToResponse() approach which
+        // had an artificial timeout (now the standard FETCH_BODY_TIMEOUT_MS
+        // of 10 min applies).
         if (!stream) {
           // #3229: surface a real upstream error instead of masking a 4xx/5xx as an
-          // empty `chat.completion` envelope (collectStreamToResponse synthesizes a
-          // success-shaped body when the upstream returned no SSE data).
+          // empty `chat.completion` envelope.
           if (!response.ok) {
             const rawBody = await response
               .clone()
@@ -1563,35 +1590,98 @@ export class AntigravityExecutor extends BaseExecutor {
               transformedBody: attachToolNameMap(transformedBody, requestToolNameMap),
             };
           }
-          const collected = await this.collectStreamToResponse(
-            response,
-            model,
-            url,
-            finalHeaders,
-            transformedBody,
-            log,
-            signal
-          );
-          // When credits were injected (credits-first or credits-retry), the
-          // synthetic body contains _remainingCredits — mirror it into the
-          // balance cache so the dashboard stays fresh.
-          try {
-            const syntheticJson = await collected.response.clone().json();
-            const rc = syntheticJson?._remainingCredits;
-            if (Array.isArray(rc)) {
-              const googleCredit = rc.find(
-                (c: { creditType?: string }) => c?.creditType === "GOOGLE_ONE_AI"
-              );
-              if (googleCredit) {
-                const balance = parseInt(googleCredit.creditAmount, 10);
-                if (!isNaN(balance)) updateAntigravityRemainingCredits(accountId, balance);
+
+          if (response.body) {
+            // Cancel upstream body on client disconnect
+            if (signal) {
+              const abortHandler = () => {
+                try {
+                  response.body?.cancel().catch(() => {});
+                } catch (_) {}
+              };
+              if (signal.aborted) {
+                abortHandler();
+              } else {
+                signal.addEventListener("abort", abortHandler, { once: true });
               }
             }
-          } catch {
-            /* balance cache is best-effort */
+
+            // Tap the stream to extract remainingCredits while passing
+            // data through unmodified.  chatCore drains the full body.
+            let nsSseBuffer = "";
+            const nsDecoder = new TextDecoder();
+            const nsPassThrough = new TransformStream(
+              {
+                transform(chunk, controller) {
+                  controller.enqueue(chunk);
+                  try {
+                    nsSseBuffer += nsDecoder.decode(chunk, { stream: true });
+                  } catch {
+                    /* decoding best-effort */
+                  }
+                },
+                flush() {
+                  try {
+                    nsSseBuffer += nsDecoder.decode();
+                  } catch {
+                    /* decoding best-effort */
+                  }
+                  try {
+                    const lines = nsSseBuffer.split("\n");
+                    for (const line of lines) {
+                      const trimmed = line.trim();
+                      if (!trimmed.startsWith("data:")) continue;
+                      const payload = trimmed.slice(5).trim();
+                      if (!payload || payload === "[DONE]") continue;
+                      try {
+                        const parsed = JSON.parse(payload);
+                        if (Array.isArray(parsed?.remainingCredits)) {
+                          const googleCredit = parsed.remainingCredits.find(
+                            (c: unknown) => {
+                              const credit = asRecord(c);
+                              return credit?.creditType === "GOOGLE_ONE_AI";
+                            }
+                          ) as AntigravityCreditEntry | undefined;
+                          if (googleCredit) {
+                            const balance = parseInt(
+                              String(googleCredit.creditAmount ?? ""),
+                              10
+                            );
+                            if (!isNaN(balance))
+                              updateAntigravityRemainingCredits(accountId, balance);
+                          }
+                        }
+                      } catch {
+                        /* skip malformed lines */
+                      }
+                    }
+                  } catch {
+                    /* credits extraction is best-effort */
+                  }
+                  nsSseBuffer = "";
+                },
+              },
+              { highWaterMark: 16384 },
+              { highWaterMark: 16384 }
+            );
+            const tappedBody = response.body.pipeThrough(nsPassThrough);
+            return {
+              response: new Response(tappedBody, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers,
+              }),
+              url,
+              headers: finalHeaders,
+              transformedBody: attachToolNameMap(transformedBody, requestToolNameMap),
+            };
           }
+
+          // No body -- return as-is
           return {
-            ...collected,
+            response,
+            url,
+            headers: finalHeaders,
             transformedBody: attachToolNameMap(transformedBody, requestToolNameMap),
           };
         }
