@@ -1937,7 +1937,12 @@ export async function GET(
     }
 
     // Build headers
-    const headers = config.buildHeaders ? config.buildHeaders(token) : { ...config.headers };
+    const headers = config.buildHeaders
+      ? config.buildHeaders(token, {
+          providerSpecificData: connection.providerSpecificData,
+          email: typeof connection.email === "string" ? connection.email : null,
+        })
+      : { ...config.headers };
     if (!config.buildHeaders && config.authHeader && !config.authQuery) {
       headers[config.authHeader] = (config.authPrefix || "") + token;
     }
