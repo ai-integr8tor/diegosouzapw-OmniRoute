@@ -7,10 +7,6 @@
 // toggle (its own endpoint / separate store), a read-only derived-pipeline preview,
 // and the general settings (auto-trigger tokens + preserve-system-prompt).
 //
-// Engine rows use the catalog label/description (hardcoded English) directly — NOT
-// i18n — so they stay deterministic. Human-facing chrome (master, general) keeps the
-// app's i18n via useTranslations("settings").
-
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
@@ -33,7 +29,7 @@ import {
   DEFAULT_CONTEXT_BUDGET,
   type ContextBudgetConfig,
 } from "../../../../../../open-sse/services/compression/adaptiveCompression/types.ts";
-import { formatAdaptiveTarget } from "./adaptiveTargetLabel.ts";
+import { getAdaptiveTargetSummary } from "./adaptiveTargetLabel.ts";
 
 type CavemanIntensity = "lite" | "full" | "ultra";
 
@@ -88,7 +84,9 @@ function normalizeEngines(raw: unknown): Record<string, EngineToggle> {
   const source = (raw && typeof raw === "object" ? raw : {}) as Record<string, EngineToggle>;
   for (const id of ENGINE_IDS) {
     const cur = source[id];
-    engines[id] = cur ? { enabled: cur.enabled === true, ...(cur.level ? { level: cur.level } : {}) } : { enabled: false };
+    engines[id] = cur
+      ? { enabled: cur.enabled === true, ...(cur.level ? { level: cur.level } : {}) }
+      : { enabled: false };
   }
   return engines;
 }
@@ -207,10 +205,16 @@ export default function CompressionPanel() {
   const derived = deriveDefaultPlan(config.engines, config.enabled);
   const derivedText =
     derived.mode === "off"
-      ? "off"
+      ? t("compressionDerivedOff")
       : derived.stackedPipeline.length > 0
-        ? `runs: ${derived.stackedPipeline.map((s) => s.engine).join(" → ")}`
-        : `mode: ${derived.mode}`;
+        ? t("compressionDerivedRuns", {
+            pipeline: derived.stackedPipeline.map((s) => s.engine).join(" → "),
+          })
+        : t("compressionDerivedMode", { mode: derived.mode });
+  const adaptiveTarget = getAdaptiveTargetSummary(
+    config.contextBudget ?? DEFAULT_CONTEXT_BUDGET,
+    200000
+  );
 
   if (loading) {
     return (
@@ -256,8 +260,7 @@ export default function CompressionPanel() {
           )}
           {status === "error" && (
             <span className="flex items-center gap-1 text-xs font-medium text-red-500">
-              <span className="material-symbols-outlined text-[14px]">error</span>{" "}
-              {t("saveFailed")}
+              <span className="material-symbols-outlined text-[14px]">error</span> {t("saveFailed")}
             </span>
           )}
           <Toggle
@@ -275,7 +278,8 @@ export default function CompressionPanel() {
         data-testid="derived-pipeline-preview"
         className="mb-4 rounded-md border border-border/60 bg-bg-subtle px-3 py-2 text-xs text-text-muted"
       >
-        <span className="font-medium text-text-main">Effective pipeline:</span> {derivedText}
+        <span className="font-medium text-text-main">{t("compressionEffectivePipeline")}</span>{" "}
+        {derivedText}
       </div>
 
       {/* Adaptive context-budget — read-only computed target (Phase 4C, D-C1 transparency) */}
@@ -283,7 +287,14 @@ export default function CompressionPanel() {
         data-testid="adaptive-target-preview"
         className="mb-4 rounded-md border border-border/60 bg-bg-subtle px-3 py-2 text-xs text-text-muted"
       >
-        {formatAdaptiveTarget(config.contextBudget ?? DEFAULT_CONTEXT_BUDGET, 200000)}
+        {adaptiveTarget.enabled
+          ? t("compressionAdaptiveTarget", {
+              mode: adaptiveTarget.mode,
+              policy: adaptiveTarget.policy,
+              target: adaptiveTarget.target,
+              contextLimit: adaptiveTarget.contextLimit,
+            })
+          : t("compressionAdaptiveOff")}
       </div>
 
       {/* Engine grid */}
@@ -293,6 +304,8 @@ export default function CompressionPanel() {
           const engine = config.engines[id] ?? { enabled: false };
           const levels = meta.levels;
           const level = engine.level ?? levels?.[0] ?? "";
+          const engineLabel = t(`compressionEngine.${id}.label`);
+          const engineDescription = t(`compressionEngine.${id}.description`);
           return (
             <div
               key={id}
@@ -301,7 +314,7 @@ export default function CompressionPanel() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-sm font-medium text-text-main">
-                  {meta.label}
+                  {engineLabel}
                   <Link
                     href={`/dashboard/context/${id}`}
                     className="rounded border border-border bg-bg-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-text-muted hover:border-primary/40 hover:text-primary"
@@ -309,7 +322,7 @@ export default function CompressionPanel() {
                     {id}
                   </Link>
                 </div>
-                <p className="mt-0.5 text-xs text-text-muted">{meta.description}</p>
+                <p className="mt-0.5 text-xs text-text-muted">{engineDescription}</p>
                 <EngineGuidanceDetail
                   id={id}
                   guidance={meta.guidance}
@@ -327,7 +340,7 @@ export default function CompressionPanel() {
                   >
                     {levels.map((lvl) => (
                       <option key={lvl} value={lvl}>
-                        {lvl}
+                        {t(`compressionLevel.${lvl}`)}
                       </option>
                     ))}
                   </select>
@@ -338,7 +351,7 @@ export default function CompressionPanel() {
                     checked={engine.enabled}
                     onChange={(enabled) => setEngine(id, { enabled })}
                     disabled={!config.enabled || saving}
-                    ariaLabel={meta.label}
+                    ariaLabel={engineLabel}
                   />
                 </span>
               </div>
@@ -354,7 +367,7 @@ export default function CompressionPanel() {
             {t("compressionSettingsOutputStyles")}
           </p>
           <p className="mt-0.5 text-xs text-text-muted">
-            Inject response-shaping instructions without rewriting provider output. Combine freely.
+            {t("compressionOutputStylesDescription")}
           </p>
         </div>
         {OUTPUT_STYLE_IDS.filter((id) => {
@@ -363,6 +376,8 @@ export default function CompressionPanel() {
         }).map((id) => {
           const meta = outputStyleMeta(id);
           const sel = config.outputStyles?.find((s) => s.id === id);
+          const styleLabel = t(`compressionOutputStyle.${id}.label`);
+          const styleDescription = t(`compressionOutputStyle.${id}.description`);
           return (
             <div
               key={id}
@@ -370,10 +385,8 @@ export default function CompressionPanel() {
               className="flex items-center justify-between gap-2"
             >
               <div className="min-w-0">
-                <p className="text-sm text-text-main">{meta.label}</p>
-                {meta.description && (
-                  <p className="text-xs text-text-muted">{meta.description}</p>
-                )}
+                <p className="text-sm text-text-main">{styleLabel}</p>
+                {meta.description && <p className="text-xs text-text-muted">{styleDescription}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <select
@@ -387,7 +400,7 @@ export default function CompressionPanel() {
                 >
                   {CAVEMAN_OUTPUT_LEVELS.map((lvl) => (
                     <option key={lvl} value={lvl}>
-                      {lvl}
+                      {t(`compressionLevel.${lvl}`)}
                     </option>
                   ))}
                 </select>
@@ -397,7 +410,7 @@ export default function CompressionPanel() {
                     checked={Boolean(sel)}
                     onChange={(enabled) => setOutputStyle(id, { enabled })}
                     disabled={saving}
-                    ariaLabel={meta.label}
+                    ariaLabel={styleLabel}
                   />
                 </span>
               </div>
@@ -410,15 +423,11 @@ export default function CompressionPanel() {
           or the opt-in LLMLingua-2 SLM Tier-B) + best-effort pre-warm. */}
       <div className="mt-2 flex flex-col gap-3 border-t border-border/30 py-3">
         <label className="flex items-center justify-between">
-          <span className="text-sm font-medium text-text-main">
-            {t("compressionUltraEngine")}
-          </span>
+          <span className="text-sm font-medium text-text-main">{t("compressionUltraEngine")}</span>
           <select
             data-testid="ultra-engine-select"
             value={config.ultraEngine ?? "heuristic"}
-            onChange={(e) =>
-              save({ ultraEngine: e.target.value === "slm" ? "slm" : "heuristic" })
-            }
+            onChange={(e) => save({ ultraEngine: e.target.value === "slm" ? "slm" : "heuristic" })}
             disabled={saving}
             className="w-44 rounded border border-border bg-surface px-2 py-1 text-sm text-text-main"
           >
@@ -431,9 +440,7 @@ export default function CompressionPanel() {
           <>
             <p className="text-xs text-text-muted">{t("compressionUltraSlmHint")}</p>
             <label className="flex items-center justify-between">
-              <span className="text-sm text-text-muted">
-                {t("compressionUltraSlmPrewarm")}
-              </span>
+              <span className="text-sm text-text-muted">{t("compressionUltraSlmPrewarm")}</span>
               <span data-testid="ultra-slm-prewarm-toggle">
                 <Toggle
                   size="sm"
@@ -452,9 +459,7 @@ export default function CompressionPanel() {
       <div className="flex flex-col gap-2 border-t border-border/30 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-text-main">{t("mcpAccessibilityTitle")}</p>
-          <p className="mt-0.5 text-xs text-text-muted">
-            Scopes MCP tool outputs (separate store).
-          </p>
+          <p className="mt-0.5 text-xs text-text-muted">{t("mcpAccessibilityDescription")}</p>
         </div>
         <span data-testid="mcp-accessibility-toggle">
           <Toggle
