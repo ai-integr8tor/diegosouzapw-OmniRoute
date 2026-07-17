@@ -12,6 +12,7 @@ import type { AgentId, DetectionResult, MitmTarget } from "./types.ts";
 import { getAllAgentBridgeStates } from "@/lib/db/agentBridgeState.ts";
 import { listCustomHosts } from "@/lib/db/inspectorCustomHosts.ts";
 import { getUserBypassPatterns } from "@/lib/db/agentBridgeBypass.ts";
+import { getGheCopilotHosts } from "@/lib/db/providers.ts";
 import { configureUpstreamCa } from "./upstreamTrust.ts";
 import { createLogger } from "@/shared/utils/logger.ts";
 
@@ -142,7 +143,7 @@ export function writeTargetsJson(targets: MitmTarget[] = ALL_TARGETS): void {
     targets: targets.map((t) => ({
       id: t.id,
       name: t.name,
-      hosts: t.hosts,
+      hosts: t.id === "ghe-copilot" ? [...new Set([...t.hosts, ...getGheCopilotHosts()])] : t.hosts,
       endpointPatterns: t.endpointPatterns,
       viability: t.viability ?? "supported",
     })),
@@ -231,6 +232,9 @@ export function collectManagedHosts(): string[] {
   const hosts = new Set<string>();
   for (const target of ALL_TARGETS) {
     for (const h of target.hosts) hosts.add(h);
+    if (target.id === "ghe-copilot") {
+      for (const h of getGheCopilotHosts()) hosts.add(h);
+    }
   }
   try {
     for (const ch of listCustomHosts()) hosts.add(ch.host);
