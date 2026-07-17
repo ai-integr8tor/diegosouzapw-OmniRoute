@@ -48,9 +48,8 @@ vi.mock("@/app/(dashboard)/dashboard/cli-code/components/CliStatusBadge", () => 
 
 // ── Static imports after mocks ────────────────────────────────────────────────
 
-const { default: CliAgentsPageClient } = await import(
-  "@/app/(dashboard)/dashboard/cli-agents/CliAgentsPageClient"
-);
+const { default: CliAgentsPageClient } =
+  await import("@/app/(dashboard)/dashboard/cli-agents/CliAgentsPageClient");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -175,9 +174,7 @@ describe("CliAgentsPageClient", () => {
     const visibleCards = countAgentCards(container);
     expect(visibleCards).toBe(1);
 
-    const remainingHrefs = Array.from(
-      container.querySelectorAll<HTMLAnchorElement>("a[href]")
-    )
+    const remainingHrefs = Array.from(container.querySelectorAll<HTMLAnchorElement>("a[href]"))
       .filter((a) => a.getAttribute("href")?.startsWith("/dashboard/cli-agents/"))
       .map((a) => a.getAttribute("href") ?? "");
 

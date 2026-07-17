@@ -55,7 +55,10 @@ describe("ConversationTab normalizeConversation", () => {
       assert.ok(Array.isArray(result.request), "request should be an array");
       assert.ok(result.request.length >= 1, "should have at least 1 turn");
       const roles = result.request.map((t) => t.role);
-      assert.ok(roles.includes("user") || roles.includes("system"), "should have user or system role");
+      assert.ok(
+        roles.includes("user") || roles.includes("system"),
+        "should have user or system role"
+      );
     }
   });
 

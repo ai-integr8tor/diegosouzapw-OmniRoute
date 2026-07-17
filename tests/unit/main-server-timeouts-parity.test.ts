@@ -21,11 +21,7 @@ const ENV_MATRIX: Record<string, string | undefined>[] = [
 
 test("sibling main-server-timeouts.mjs stays in parity with runtimeTimeouts.ts", () => {
   for (const env of ENV_MATRIX) {
-    assert.deepStrictEqual(
-      mjsImpl(env),
-      tsImpl(env),
-      `divergence for env ${JSON.stringify(env)}`
-    );
+    assert.deepStrictEqual(mjsImpl(env), tsImpl(env), `divergence for env ${JSON.stringify(env)}`);
   }
 });
 

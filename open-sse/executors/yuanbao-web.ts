@@ -180,8 +180,7 @@ export class YuanbaoWebExecutor extends BaseExecutor {
   }> {
     const { model, body, stream, credentials, signal, log, upstreamExtraHeaders } = input;
     const messages = (body as Record<string, unknown>).messages as
-      | Array<Record<string, unknown>>
-      | undefined;
+      Array<Record<string, unknown>> | undefined;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return this.errorResponse(400, "Missing or empty messages array", CHAT_URL);
@@ -253,11 +252,7 @@ export class YuanbaoWebExecutor extends BaseExecutor {
       const createData = (await createRes.json()) as Record<string, unknown>;
       conversationId = String(createData.id || "");
       if (!conversationId) {
-        return this.errorResponse(
-          502,
-          "Yuanbao did not return a conversation id",
-          CREATE_URL
-        );
+        return this.errorResponse(502, "Yuanbao did not return a conversation id", CREATE_URL);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

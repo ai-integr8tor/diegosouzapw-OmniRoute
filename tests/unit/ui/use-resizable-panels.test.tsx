@@ -54,7 +54,9 @@ describe("useResizablePanels logic", () => {
     const storage: Record<string, string> = {};
     const mockStorage = {
       getItem: (k: string) => storage[k] ?? null,
-      setItem: (k: string, v: string) => { storage[k] = v; },
+      setItem: (k: string, v: string) => {
+        storage[k] = v;
+      },
     };
     const width = 480;
     mockStorage.setItem(STORAGE_KEY, String(width));

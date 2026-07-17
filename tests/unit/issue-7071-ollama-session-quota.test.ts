@@ -26,13 +26,17 @@ const { checkFallbackError } = await import("../../open-sse/services/accountFall
 const { isSessionUsageLimitText, buildSessionQuotaFallback, isWeeklyUsageLimitText } =
   await import("../../open-sse/services/quotaTextCooldowns.ts");
 const { RateLimitReason, BACKOFF_CONFIG } = await import("../../open-sse/config/constants.ts");
-const { BACKOFF_CONFIG: ERROR_BACKOFF_CONFIG } = await import("../../open-sse/config/errorConfig.ts");
+const { BACKOFF_CONFIG: ERROR_BACKOFF_CONFIG } =
+  await import("../../open-sse/config/errorConfig.ts");
 
 const SESSION_BODY = "you (acme-corp) have reached your session usage limit";
 const SESSION_COOLDOWN_MS = 5 * 60 * 60 * 1000; // 5 hours
 
 test("#7071 sanity: weekly text IS recognized (already fixed by #3709/#6638)", () => {
-  assert.equal(isWeeklyUsageLimitText("you (acme-corp) have reached your weekly usage limit"), true);
+  assert.equal(
+    isWeeklyUsageLimitText("you (acme-corp) have reached your weekly usage limit"),
+    true
+  );
 });
 
 test("#7071 isSessionUsageLimitText matches the ollama-cloud 429 body", () => {

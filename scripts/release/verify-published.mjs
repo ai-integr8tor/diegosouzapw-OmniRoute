@@ -87,7 +87,9 @@ function main() {
   try {
     execFileSync("docker", ["--version"], { stdio: "ignore" });
   } catch {
-    console.error("[verify-published] docker unavailable — this verifier requires a clean container");
+    console.error(
+      "[verify-published] docker unavailable — this verifier requires a clean container"
+    );
     process.exit(2);
   }
   console.log(`[verify-published] clean-container verify of omniroute@${version}…`);
@@ -96,11 +98,14 @@ function main() {
     console.log("[verify-published] ✅ the published package installs and boots");
     process.exit(0);
   }
-  console.error(`[verify-published] ❌ FAILED (exit ${r.status}) — consider: npm deprecate omniroute@${version} "<reason>"`);
+  console.error(
+    `[verify-published] ❌ FAILED (exit ${r.status}) — consider: npm deprecate omniroute@${version} "<reason>"`
+  );
   process.exit(1);
 }
 
 import path from "node:path";
 const isDirectRun =
-  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
 if (isDirectRun) main();

@@ -17,11 +17,7 @@ const FROZEN = "release/v3.8.49";
 const NEXT = "release/v3.8.50";
 
 test("retargets an open PR sitting on the frozen release branch", () => {
-  const { action } = classify(
-    { number: 1, baseRefName: FROZEN, isDraft: false },
-    FROZEN,
-    NEXT
-  );
+  const { action } = classify({ number: 1, baseRefName: FROZEN, isDraft: false }, FROZEN, NEXT);
   assert.equal(action, "retarget");
 });
 
@@ -41,7 +37,11 @@ test("skips a PR already re-homed — the script must be idempotent for a resume
 });
 
 test("never touches a PR based on main — that is the release PR's own lane", () => {
-  const { action, reason } = classify({ number: 4, baseRefName: "main", isDraft: false }, FROZEN, NEXT);
+  const { action, reason } = classify(
+    { number: 4, baseRefName: "main", isDraft: false },
+    FROZEN,
+    NEXT
+  );
   assert.equal(action, "skip");
   assert.match(reason, /not the frozen branch/);
 });

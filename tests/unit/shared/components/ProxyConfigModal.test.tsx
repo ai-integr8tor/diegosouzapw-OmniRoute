@@ -432,7 +432,10 @@ describe("ProxyConfigModal test connection (saved proxy)", () => {
       }
       if (url.startsWith("/api/settings/proxies/assignments?") && url.includes("scope=provider")) {
         return {
-          body: { items: [{ proxyId: "socks5-1", scope: "provider", scopeId: "claude" }], total: 1 },
+          body: {
+            items: [{ proxyId: "socks5-1", scope: "provider", scopeId: "claude" }],
+            total: 1,
+          },
         };
       }
       if (method === "POST" && url === "/api/settings/proxy/test") {

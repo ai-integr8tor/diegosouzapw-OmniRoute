@@ -22,9 +22,8 @@ test("USAGE_FETCHER_PROVIDERS includes ollama-cloud (#7026)", () => {
 });
 
 test("registerGenericQuotaFetchers wires a preflight quota fetcher for ollama-cloud (#7026)", async () => {
-  const { registerGenericQuotaFetchers } = await import(
-    "../../open-sse/services/genericQuotaFetcher.ts"
-  );
+  const { registerGenericQuotaFetchers } =
+    await import("../../open-sse/services/genericQuotaFetcher.ts");
   const { getQuotaFetcher } = await import("../../open-sse/services/quotaPreflight.ts");
   registerGenericQuotaFetchers();
   assert.ok(

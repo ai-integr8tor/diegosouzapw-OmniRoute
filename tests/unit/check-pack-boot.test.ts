@@ -16,7 +16,10 @@ const SCRIPT_PATH = path.join(
 );
 
 test("pickTarball extracts the filename from npm pack --json output", () => {
-  assert.equal(pickTarball('[{"filename":"omniroute-3.8.49.tgz","size":1}]'), "omniroute-3.8.49.tgz");
+  assert.equal(
+    pickTarball('[{"filename":"omniroute-3.8.49.tgz","size":1}]'),
+    "omniroute-3.8.49.tgz"
+  );
 });
 
 test("pickTarball normalizes scoped slashes to the on-disk dash form", () => {
@@ -51,7 +54,10 @@ test("pickPort stays inside the reserved smoke range for any pid", () => {
 
 test("source guard: the gate polls the real health endpoint of the INSTALLED binary", () => {
   const src = readFileSync(SCRIPT_PATH, "utf8");
-  assert.ok(src.includes('"install", "-g", "--prefix"'), "must install the packed tarball into a clean prefix");
+  assert.ok(
+    src.includes('"install", "-g", "--prefix"'),
+    "must install the packed tarball into a clean prefix"
+  );
   assert.ok(src.includes("/api/monitoring/health"), "must poll the health endpoint");
   assert.ok(src.indexOf("npm") < src.indexOf("spawn"), "pack+install must precede the boot spawn");
 });

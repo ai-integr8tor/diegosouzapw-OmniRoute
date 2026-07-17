@@ -9,9 +9,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { errorResponseWithComboDiagnostics, sanitizeComboDiagnostics } = await import(
-  "../../open-sse/utils/error.ts"
-);
+const { errorResponseWithComboDiagnostics, sanitizeComboDiagnostics } =
+  await import("../../open-sse/utils/error.ts");
 
 test("combo diagnostics: headers + body carry the sanitized trace (code override preserved)", async () => {
   const res = errorResponseWithComboDiagnostics(
@@ -89,7 +88,9 @@ test("combo diagnostics: terminalReason with a non-Latin1 char (em dash) must no
       {
         poolSize: 4,
         attempted: 1,
-        excluded: [{ provider: "deepseek", model: "deepseek-v4-flash-free", reason: "quality — bad" }],
+        excluded: [
+          { provider: "deepseek", model: "deepseek-v4-flash-free", reason: "quality — bad" },
+        ],
         attemptOrder: [{ provider: "deepseek", model: "deepseek-v4-flash-free" }],
         terminalReason,
       }
@@ -112,7 +113,10 @@ test("combo diagnostics: JSON body keeps the original non-Latin1 text even thoug
     }
   );
   // Header value must be a valid Latin1 ByteString — em dash (U+2014) replaced.
-  assert.equal(res.headers.get("x-omniroute-combo-terminal-reason"), terminalReason.replace("—", "?"));
+  assert.equal(
+    res.headers.get("x-omniroute-combo-terminal-reason"),
+    terminalReason.replace("—", "?")
+  );
   const body = await res.json();
   // JSON body keeps the original, readable (unsanitized) em dash.
   assert.equal(body.diagnostics.terminalReason, terminalReason);

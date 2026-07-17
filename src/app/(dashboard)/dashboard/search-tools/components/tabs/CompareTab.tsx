@@ -77,9 +77,7 @@ export default function CompareTab({ providers, onMetrics }: CompareTabProps) {
   }, []);
 
   const selectAll = useCallback(() => {
-    setSelectedProviderIds(
-      activeSearchProviders.slice(0, MAX_COMPARE_PROVIDERS).map((p) => p.id)
-    );
+    setSelectedProviderIds(activeSearchProviders.slice(0, MAX_COMPARE_PROVIDERS).map((p) => p.id));
   }, [activeSearchProviders]);
 
   const clearAll = useCallback(() => {

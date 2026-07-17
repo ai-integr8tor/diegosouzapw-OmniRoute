@@ -21,10 +21,7 @@ import { fileURLToPath } from "node:url";
 import { __disableSsoProtectionForTest } from "../../src/app/api/settings/proxy/vercel-deploy/route";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const ROUTE_PATH = join(
-  ROOT,
-  "src/app/api/settings/proxy/vercel-deploy/route.ts"
-);
+const ROUTE_PATH = join(ROOT, "src/app/api/settings/proxy/vercel-deploy/route.ts");
 
 describe("disableSsoProtection — checks the Vercel PATCH response instead of swallowing it", () => {
   const originalFetch = global.fetch;

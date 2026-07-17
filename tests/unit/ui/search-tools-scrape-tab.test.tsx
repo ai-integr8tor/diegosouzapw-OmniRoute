@@ -16,17 +16,25 @@ vi.mock("next/link", () => ({
 }));
 
 // Mock ScrapeResult to keep test focused
-vi.mock(
-  "../../../src/app/(dashboard)/dashboard/search-tools/components/ScrapeResult",
-  () => ({
-    default: ({ result }: { result: { content: string; url: string; provider: string; links: string[]; metadata: null; screenshot_url: null } }) =>
-      React.createElement("div", {
-        "data-testid": "scrape-result-mock",
-        "data-url": result.url,
-        "data-provider": result.provider,
-      }),
-  }),
-);
+vi.mock("../../../src/app/(dashboard)/dashboard/search-tools/components/ScrapeResult", () => ({
+  default: ({
+    result,
+  }: {
+    result: {
+      content: string;
+      url: string;
+      provider: string;
+      links: string[];
+      metadata: null;
+      screenshot_url: null;
+    };
+  }) =>
+    React.createElement("div", {
+      "data-testid": "scrape-result-mock",
+      "data-url": result.url,
+      "data-provider": result.provider,
+    }),
+}));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -45,9 +53,8 @@ const MOCK_SCRAPE_RESPONSE = {
 
 // ── Import component after mocks ──────────────────────────────────────────────
 
-const { default: ScrapeTab } = await import(
-  "../../../src/app/(dashboard)/dashboard/search-tools/components/tabs/ScrapeTab"
-);
+const { default: ScrapeTab } =
+  await import("../../../src/app/(dashboard)/dashboard/search-tools/components/tabs/ScrapeTab");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -76,7 +83,9 @@ function renderScrapeTab(): HTMLDivElement {
 
 describe("ScrapeTab", () => {
   beforeEach(() => {
-    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    (
+      globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
   });
 
   afterEach(() => {
@@ -126,7 +135,7 @@ describe("ScrapeTab", () => {
       // Trigger React onChange via a proper event
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
-        "value",
+        "value"
       )?.set;
       nativeInputValueSetter?.call(input, INVALID_URL);
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -145,7 +154,7 @@ describe("ScrapeTab", () => {
       Promise.resolve({
         ok: true,
         json: () => Promise.resolve(MOCK_SCRAPE_RESPONSE),
-      } as Response),
+      } as Response)
     );
     globalThis.fetch = mockFetch;
 
@@ -156,7 +165,7 @@ describe("ScrapeTab", () => {
     act(() => {
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
-        "value",
+        "value"
       )?.set;
       nativeInputValueSetter?.call(input, VALID_URL);
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -182,7 +191,7 @@ describe("ScrapeTab", () => {
       Promise.resolve({
         ok: true,
         json: () => Promise.resolve(MOCK_SCRAPE_RESPONSE),
-      } as Response),
+      } as Response)
     );
     globalThis.fetch = mockFetch;
 
@@ -198,7 +207,7 @@ describe("ScrapeTab", () => {
       // Dispatch a proper React-compatible input event
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
-        "value",
+        "value"
       )?.set;
       nativeInputValueSetter?.call(input, VALID_URL);
       input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -230,7 +239,7 @@ describe("ScrapeTab", () => {
       Promise.resolve({
         ok: false,
         json: () => Promise.resolve({ error: { message: "Provider unavailable" } }),
-      } as Response),
+      } as Response)
     );
     globalThis.fetch = mockFetch;
 
@@ -240,7 +249,7 @@ describe("ScrapeTab", () => {
     act(() => {
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
-        "value",
+        "value"
       )?.set;
       nativeInputValueSetter?.call(input, VALID_URL);
       input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -275,7 +284,7 @@ describe("ScrapeTab", () => {
     act(() => {
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
-        "value",
+        "value"
       )?.set;
       nativeInputValueSetter?.call(input, HTTP_ONLY_URL);
       input.dispatchEvent(new Event("input", { bubbles: true }));

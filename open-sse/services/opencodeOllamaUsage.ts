@@ -42,9 +42,7 @@ type OllamaCloudUsage = {
   planTier?: string | null;
 };
 type OllamaCloudConfig =
-  | { state: "configured"; cookie: string }
-  | { state: "invalid"; error: string }
-  | { state: "none" };
+  { state: "configured"; cookie: string } | { state: "invalid"; error: string } | { state: "none" };
 
 function toRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};

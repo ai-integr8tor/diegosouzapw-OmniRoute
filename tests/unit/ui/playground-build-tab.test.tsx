@@ -15,10 +15,7 @@ vi.mock("react-markdown", () => ({
   ),
 }));
 
-function setInputValue(
-  el: HTMLTextAreaElement | HTMLInputElement,
-  value: string,
-): void {
+function setInputValue(el: HTMLTextAreaElement | HTMLInputElement, value: string): void {
   const nativeSetter =
     el instanceof HTMLTextAreaElement
       ? Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set
@@ -28,12 +25,10 @@ function setInputValue(
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-const { DEFAULT_PARAMS } = await import(
-  "../../../src/app/(dashboard)/dashboard/playground/components/ParamSliders"
-);
-const { default: BuildTab } = await import(
-  "../../../src/app/(dashboard)/dashboard/playground/components/tabs/BuildTab"
-);
+const { DEFAULT_PARAMS } =
+  await import("../../../src/app/(dashboard)/dashboard/playground/components/ParamSliders");
+const { default: BuildTab } =
+  await import("../../../src/app/(dashboard)/dashboard/playground/components/tabs/BuildTab");
 
 const BASE_CONFIG = {
   endpoint: "chat.completions" as const,
@@ -78,7 +73,7 @@ type BuildMode = "tools" | "json" | "both";
 
 function clickNext(el: HTMLDivElement): void {
   const nextBtn = Array.from(el.querySelectorAll("button")).find((b) =>
-    b.textContent?.includes("nextButton"),
+    b.textContent?.includes("nextButton")
   ) as HTMLButtonElement;
   act(() => {
     nextBtn.click();
@@ -91,7 +86,7 @@ function selectMode(el: HTMLDivElement, mode: BuildMode): void {
   if (mode === "tools") return;
   const key = mode === "json" ? "modeJsonTitle" : "modeBothTitle";
   const card = Array.from(el.querySelectorAll("button")).find((b) =>
-    b.textContent?.includes(key),
+    b.textContent?.includes(key)
   ) as HTMLButtonElement;
   act(() => {
     card.click();
@@ -124,7 +119,7 @@ describe("BuildTab", () => {
     const el = renderBuildTab();
     goToStep3(el);
     const runBtn = Array.from(el.querySelectorAll("button")).find((b) =>
-      b.textContent?.includes("runButton"),
+      b.textContent?.includes("runButton")
     );
     expect(runBtn).not.toBeUndefined();
   });
@@ -155,11 +150,13 @@ describe("BuildTab", () => {
 
     const addBtns = el.querySelectorAll("button");
     const addToolBtn = Array.from(addBtns).find(
-      (b) => b.textContent?.trim() === "+ Add tool",
+      (b) => b.textContent?.trim() === "+ Add tool"
     ) as HTMLButtonElement;
     expect(addToolBtn).not.toBeNull();
 
-    await act(async () => { addToolBtn.click(); });
+    await act(async () => {
+      addToolBtn.click();
+    });
 
     expect(el.textContent).toContain("search_web");
     expect(el.textContent).toContain("Tools (1)");
@@ -174,17 +171,19 @@ describe("BuildTab", () => {
 
     // The parameters textarea is in the Add tool form section — it has default valid JSON.
     const paramsTextareas = Array.from(el.querySelectorAll("textarea")).filter(
-      (t) => t.getAttribute("aria-label") === "JSON schema for parameters",
+      (t) => t.getAttribute("aria-label") === "JSON schema for parameters"
     );
     const paramsTextarea = paramsTextareas[paramsTextareas.length - 1] as HTMLTextAreaElement;
     act(() => setInputValue(paramsTextarea, "NOT JSON {{{"));
 
     const addBtns = el.querySelectorAll("button");
     const addToolBtn = Array.from(addBtns).find(
-      (b) => b.textContent?.trim() === "+ Add tool",
+      (b) => b.textContent?.trim() === "+ Add tool"
     ) as HTMLButtonElement;
 
-    await act(async () => { addToolBtn.click(); });
+    await act(async () => {
+      addToolBtn.click();
+    });
 
     expect(el.textContent).toContain("valid JSON");
   });
@@ -196,7 +195,9 @@ describe("BuildTab", () => {
     const toggle = el.querySelector("[role='switch']") as HTMLButtonElement;
     expect(toggle).not.toBeNull();
 
-    await act(async () => { toggle.click(); });
+    await act(async () => {
+      toggle.click();
+    });
 
     // JSON mode should be enabled
     expect(toggle.getAttribute("aria-checked")).toBe("true");
@@ -212,9 +213,11 @@ describe("BuildTab", () => {
 
     const addBtns = el.querySelectorAll("button");
     const addToolBtn = Array.from(addBtns).find(
-      (b) => b.textContent?.trim() === "+ Add tool",
+      (b) => b.textContent?.trim() === "+ Add tool"
     ) as HTMLButtonElement;
-    await act(async () => { addToolBtn.click(); });
+    await act(async () => {
+      addToolBtn.click();
+    });
 
     clickNext(el); // step 2 -> step 3
 
@@ -231,10 +234,10 @@ describe("BuildTab", () => {
             JSON.stringify({
               choices: [{ message: { content: "Result", role: "assistant" } }],
             }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
-        ),
-      ) as typeof fetch,
+            { status: 200, headers: { "content-type": "application/json" } }
+          )
+        )
+      ) as typeof fetch
     );
 
     const el = renderBuildTab();
@@ -245,9 +248,11 @@ describe("BuildTab", () => {
     act(() => setInputValue(allInputs[0], "tool_one"));
     const addBtns = el.querySelectorAll("button");
     const addToolBtn = Array.from(addBtns).find(
-      (b) => b.textContent?.trim() === "+ Add tool",
+      (b) => b.textContent?.trim() === "+ Add tool"
     ) as HTMLButtonElement;
-    await act(async () => { addToolBtn.click(); });
+    await act(async () => {
+      addToolBtn.click();
+    });
 
     clickNext(el); // step 2 -> step 3
 
@@ -257,10 +262,12 @@ describe("BuildTab", () => {
 
     // Click Run (label is "runButton" via mocked t())
     const runBtns = el.querySelectorAll("button");
-    const runBtn = Array.from(runBtns).find(
-      (b) => b.textContent?.includes("runButton"),
+    const runBtn = Array.from(runBtns).find((b) =>
+      b.textContent?.includes("runButton")
     ) as HTMLButtonElement;
-    await act(async () => { runBtn.click(); });
+    await act(async () => {
+      runBtn.click();
+    });
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -268,7 +275,10 @@ describe("BuildTab", () => {
 
     // fetch should be called
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
-    const [, opts] = (vi.mocked(fetch) as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [, opts] = (vi.mocked(fetch) as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     const body = JSON.parse(opts.body as string) as Record<string, unknown>;
     expect(body["tools"]).toBeDefined();
     expect(Array.isArray(body["tools"])).toBe(true);
@@ -278,7 +288,9 @@ describe("BuildTab", () => {
     const el = renderBuildTab();
     goToStep2(el, "json");
     const toggle = el.querySelector("[role='switch']") as HTMLButtonElement;
-    await act(async () => { toggle.click(); });
+    await act(async () => {
+      toggle.click();
+    });
 
     clickNext(el); // step 2 -> step 3
 

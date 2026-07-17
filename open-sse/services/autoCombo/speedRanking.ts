@@ -242,10 +242,16 @@ function weightedSpeedScore(factors: SpeedFactors, weights: SpeedRankingWeights)
 function applySpeedPenalties(weightedSum: number, factors: SpeedFactors): number {
   const reliabilityMultiplier = Math.max(0.05, Math.pow(0.25 + 0.75 * factors.reliability, 2));
   const stabilityMultiplier = Math.max(0.05, Math.pow(0.25 + 0.75 * factors.stability, 2));
-  return clamp01(weightedSum * reliabilityMultiplier * stabilityMultiplier * Math.max(0.25, factors.health));
+  return clamp01(
+    weightedSum * reliabilityMultiplier * stabilityMultiplier * Math.max(0.25, factors.health)
+  );
 }
 
-function speedReason(candidate: SpeedCandidate, factors: SpeedFactors, metrics: SpeedRankedCandidate["metrics"]): string {
+function speedReason(
+  candidate: SpeedCandidate,
+  factors: SpeedFactors,
+  metrics: SpeedRankedCandidate["metrics"]
+): string {
   const reasonParts = [
     `ttft=${metrics.avgTtftMs == null ? "n/a" : `${Math.round(metrics.avgTtftMs)}ms`}`,
     `tps=${metrics.avgTokensPerSecond == null ? "n/a" : metrics.avgTokensPerSecond.toFixed(1)}`,

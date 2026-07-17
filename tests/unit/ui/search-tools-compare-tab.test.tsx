@@ -36,7 +36,7 @@ const FOUR_PROVIDERS = FIVE_PROVIDERS.slice(0, 4);
 const NO_PROVIDERS: SearchProviderCatalogItem[] = [];
 
 function mockFetchForProviders(
-  providerResults: Record<string, { urls?: string[]; cost?: number; latency?: number }> = {},
+  providerResults: Record<string, { urls?: string[]; cost?: number; latency?: number }> = {}
 ) {
   return vi.fn((url: string, opts?: RequestInit) => {
     const body = opts?.body ? (JSON.parse(opts.body as string) as Record<string, unknown>) : {};
@@ -68,9 +68,8 @@ function mockFetchForProviders(
 
 // ── Import component after mocks ──────────────────────────────────────────────
 
-const { default: CompareTab } = await import(
-  "../../../src/app/(dashboard)/dashboard/search-tools/components/tabs/CompareTab"
-);
+const { default: CompareTab } =
+  await import("../../../src/app/(dashboard)/dashboard/search-tools/components/tabs/CompareTab");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -91,7 +90,9 @@ function renderCompare(providers: SearchProviderCatalogItem[] = FOUR_PROVIDERS):
 
 describe("CompareTab", () => {
   beforeEach(() => {
-    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    (
+      globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
     globalThis.fetch = mockFetchForProviders();
   });
 
@@ -139,14 +140,14 @@ describe("CompareTab", () => {
     const el = renderCompare(FIVE_PROVIDERS);
     // Select 4 providers
     const buttons = FIVE_PROVIDERS.slice(0, 4).map(
-      (p) => el.querySelector(`[data-testid='provider-toggle-${p.id}']`) as HTMLButtonElement,
+      (p) => el.querySelector(`[data-testid='provider-toggle-${p.id}']`) as HTMLButtonElement
     );
     act(() => {
       buttons.forEach((b) => b.click());
     });
 
     const fifthBtn = el.querySelector(
-      `[data-testid='provider-toggle-${FIVE_PROVIDERS[4].id}']`,
+      `[data-testid='provider-toggle-${FIVE_PROVIDERS[4].id}']`
     ) as HTMLButtonElement;
     // 5th button should be disabled
     expect(fifthBtn?.disabled).toBe(true);
@@ -158,7 +159,7 @@ describe("CompareTab", () => {
   it("D22 — can select up to 4 providers", () => {
     const el = renderCompare(FOUR_PROVIDERS);
     const buttons = FOUR_PROVIDERS.map(
-      (p) => el.querySelector(`[data-testid='provider-toggle-${p.id}']`) as HTMLButtonElement,
+      (p) => el.querySelector(`[data-testid='provider-toggle-${p.id}']`) as HTMLButtonElement
     );
     act(() => {
       buttons.forEach((b) => b.click());
@@ -180,7 +181,7 @@ describe("CompareTab", () => {
     const el = renderCompare();
     const input = el.querySelector("[data-testid='compare-query-input']") as HTMLInputElement;
     const firstProviderBtn = el.querySelector(
-      `[data-testid='provider-toggle-${FOUR_PROVIDERS[0].id}']`,
+      `[data-testid='provider-toggle-${FOUR_PROVIDERS[0].id}']`
     ) as HTMLButtonElement;
 
     act(() => {
@@ -190,7 +191,7 @@ describe("CompareTab", () => {
     act(() => {
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
-        "value",
+        "value"
       )?.set;
       nativeInputValueSetter?.call(input, "AI trends 2026");
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -209,7 +210,9 @@ describe("CompareTab", () => {
 
     const el = renderCompare(FOUR_PROVIDERS);
     const input = el.querySelector("[data-testid='compare-query-input']") as HTMLInputElement;
-    const serperBtn = el.querySelector("[data-testid='provider-toggle-serper']") as HTMLButtonElement;
+    const serperBtn = el.querySelector(
+      "[data-testid='provider-toggle-serper']"
+    ) as HTMLButtonElement;
     const bingBtn = el.querySelector("[data-testid='provider-toggle-bing']") as HTMLButtonElement;
 
     act(() => {
@@ -220,7 +223,7 @@ describe("CompareTab", () => {
     act(() => {
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
-        "value",
+        "value"
       )?.set;
       nativeInputValueSetter?.call(input, "AI trends");
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -247,7 +250,9 @@ describe("CompareTab", () => {
 
     const el = renderCompare(FOUR_PROVIDERS);
     const input = el.querySelector("[data-testid='compare-query-input']") as HTMLInputElement;
-    const serperBtn = el.querySelector("[data-testid='provider-toggle-serper']") as HTMLButtonElement;
+    const serperBtn = el.querySelector(
+      "[data-testid='provider-toggle-serper']"
+    ) as HTMLButtonElement;
     const bingBtn = el.querySelector("[data-testid='provider-toggle-bing']") as HTMLButtonElement;
 
     act(() => {
@@ -258,7 +263,7 @@ describe("CompareTab", () => {
     act(() => {
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
-        "value",
+        "value"
       )?.set;
       nativeInputValueSetter?.call(input, "test query");
       input.dispatchEvent(new Event("input", { bubbles: true }));

@@ -127,9 +127,7 @@ describe("ConversationTab separators rendering logic", () => {
   });
 
   it("allTurns still accounts for correct total across both sections", () => {
-    const request = [
-      { role: "user" as const, content: "Hi", contentType: "text" as const },
-    ];
+    const request = [{ role: "user" as const, content: "Hi", contentType: "text" as const }];
     const response = [
       { role: "assistant" as const, content: "Hello!", contentType: "text" as const },
     ];

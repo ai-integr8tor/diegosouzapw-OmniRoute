@@ -42,7 +42,10 @@ test.after(() => {
 });
 
 test("zai-web cookie validation routes through the configured HTTP_PROXY (#7058)", async () => {
-  assert.ok(zaiWebEntry, "zai-web must have a providerRegistry entry for this test to be meaningful");
+  assert.ok(
+    zaiWebEntry,
+    "zai-web must have a providerRegistry entry for this test to be meaningful"
+  );
 
   // Stand-in for chat.z.ai's /models probe target.
   const target = http.createServer((_req, res) => {

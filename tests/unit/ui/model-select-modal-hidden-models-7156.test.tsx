@@ -10,7 +10,9 @@ vi.mock("next-intl", () => ({
 
 const roots: Array<{ root: ReturnType<typeof createRoot>; el: HTMLDivElement }> = [];
 
-async function render(props: React.ComponentProps<typeof ModelSelectModal>): Promise<HTMLDivElement> {
+async function render(
+  props: React.ComponentProps<typeof ModelSelectModal>
+): Promise<HTMLDivElement> {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
@@ -27,8 +29,10 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/combos")) return new Response(JSON.stringify({ combos: [] }), { status: 200 });
-      if (url.includes("/api/provider-nodes")) return new Response(JSON.stringify({ nodes: [] }), { status: 200 });
+      if (url.includes("/api/combos"))
+        return new Response(JSON.stringify({ combos: [] }), { status: 200 });
+      if (url.includes("/api/provider-nodes"))
+        return new Response(JSON.stringify({ nodes: [] }), { status: 200 });
       if (url.includes("/api/provider-models")) {
         return new Response(
           JSON.stringify({
@@ -49,7 +53,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const { root, el } of roots.splice(0)) { act(() => root.unmount()); el.remove(); }
+  for (const { root, el } of roots.splice(0)) {
+    act(() => root.unmount());
+    el.remove();
+  }
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -57,11 +64,16 @@ afterEach(() => {
 describe("ModelSelectModal hidden-model filtering (#7156)", () => {
   it("does not list a custom model explicitly flagged isHidden:true", async () => {
     const el = await render({
-      isOpen: true, onClose: vi.fn(), onSelect: vi.fn(),
+      isOpen: true,
+      onClose: vi.fn(),
+      onSelect: vi.fn(),
       activeProviders: [{ provider: "requesty", id: "conn-1" }],
-      modelAliases: {}, title: "Add model to combo",
+      modelAliases: {},
+      title: "Add model to combo",
     });
-    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect(el.textContent).toContain("Visible Model");
     expect(el.textContent).not.toContain("Hidden Model");
   });

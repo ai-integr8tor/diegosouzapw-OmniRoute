@@ -31,9 +31,7 @@ const TIMINGS_PATH = path.join("config", "quality", "e2e-timings.json");
  */
 export function lptAssign(items, shardCount) {
   const shards = Array.from({ length: shardCount }, () => ({ files: [], total: 0 }));
-  const sorted = [...items].sort(
-    (a, b) => b.weight - a.weight || a.file.localeCompare(b.file)
-  );
+  const sorted = [...items].sort((a, b) => b.weight - a.weight || a.file.localeCompare(b.file));
   for (const item of sorted) {
     let target = shards[0];
     for (const s of shards) if (s.total < target.total) target = s;
@@ -88,9 +86,7 @@ function main() {
     console.error("[e2e-balance] INTERNAL: shard union != discovered specs — falling back");
     process.exit(3);
   }
-  process.stdout.write(
-    shards[shard - 1].files.map((f) => path.join(E2E_DIR, f)).join("\n") + "\n"
-  );
+  process.stdout.write(shards[shard - 1].files.map((f) => path.join(E2E_DIR, f)).join("\n") + "\n");
 }
 
 const isDirectRun =

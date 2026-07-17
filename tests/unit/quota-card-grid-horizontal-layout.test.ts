@@ -109,9 +109,7 @@ test("QuotaCardGrid (#3520) — outer container flows groups into multiple colum
 
 test("QuotaCardGrid (#3520/#7072) — per-group card grid keeps a mobile grid-cols-1 fallback and goes multi-column from sm: up", () => {
   const classNames = extractDivClassNames(COMPONENT_PATH);
-  const cardGridClassName = classNames.find(
-    (c) => /\bgrid\b/.test(c) && /grid-cols-/.test(c)
-  );
+  const cardGridClassName = classNames.find((c) => /\bgrid\b/.test(c) && /grid-cols-/.test(c));
   assert.ok(cardGridClassName, "expected to find the per-group card grid's className");
   assert.match(cardGridClassName!, /\bgrid-cols-1\b/);
   assert.match(cardGridClassName!, /\bsm:grid-cols-2\b/);

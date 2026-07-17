@@ -126,10 +126,7 @@ test("Turbopack aliases @/mitm/manager to the stub ONLY when OMNIROUTE_MITM_STUB
 
     process.env.OMNIROUTE_MITM_STUB = "1";
     const { default: docker } = await loadNextConfig("mitm-docker");
-    assert.equal(
-      docker.turbopack.resolveAlias["@/mitm/manager"],
-      "./src/mitm/manager.stub.ts"
-    );
+    assert.equal(docker.turbopack.resolveAlias["@/mitm/manager"], "./src/mitm/manager.stub.ts");
   } finally {
     if (original === undefined) delete process.env.OMNIROUTE_MITM_STUB;
     else process.env.OMNIROUTE_MITM_STUB = original;
@@ -198,7 +195,11 @@ test("manager.stub.ts exports every name statically imported from @/mitm/manager
   }
   for (const m of stubSrc.matchAll(/export\s*\{([^}]*)\}/g)) {
     for (const part of m[1].split(",")) {
-      const exported = part.trim().split(/\s+as\s+/).pop()?.trim(); // `x as y` exports y
+      const exported = part
+        .trim()
+        .split(/\s+as\s+/)
+        .pop()
+        ?.trim(); // `x as y` exports y
       if (exported) stubExports.add(exported);
     }
   }

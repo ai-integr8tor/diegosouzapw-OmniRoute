@@ -33,7 +33,11 @@ describe("MiniMax M3 model registration (#3110)", () => {
     const entry = REGISTRY.opencode;
     assert.ok(entry, "opencode registry entry must exist");
     const m3 = entry.models.find((m) => m.id === "minimax-m3-free");
-    assert.equal(m3, undefined, "minimax-m3-free was delisted from OpenCode Zen's free tier (#6998)");
+    assert.equal(
+      m3,
+      undefined,
+      "minimax-m3-free was delisted from OpenCode Zen's free tier (#6998)"
+    );
   });
 
   it("opencode-go provider has minimax-m3 with Claude targetFormat", () => {
