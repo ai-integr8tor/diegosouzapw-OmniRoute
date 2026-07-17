@@ -6,14 +6,16 @@ import GlobalConfigTab from "./proxy/GlobalConfigTab";
 import ProxyPoolTab from "./proxy/ProxyPoolTab";
 import FreePoolTab from "./proxy/FreePoolTab";
 import DocumentationTab from "./proxy/DocumentationTab";
+import SubscriptionTab from "./proxy/SubscriptionTab";
 
-type TabId = "global-config" | "proxy-pool" | "free-pool" | "documentation";
+type TabId = "global-config" | "proxy-pool" | "free-pool" | "documentation" | "subscriptions";
 
-const TABS: Array<{ id: TabId; labelKey: string }> = [
+const TABS: Array<{ id: TabId; labelKey: string; literal?: string }> = [
   { id: "global-config", labelKey: "proxyGlobalConfigTab" },
   { id: "proxy-pool", labelKey: "proxyPoolTab" },
   { id: "free-pool", labelKey: "freePoolTab" },
   { id: "documentation", labelKey: "proxyDocumentationTab" },
+  { id: "subscriptions", labelKey: "proxySubscriptionsTab" },
 ];
 
 export default function ProxyTab() {
@@ -52,7 +54,7 @@ export default function ProxyTab() {
                 : "border-transparent text-text-muted hover:text-text"
             }`}
           >
-            {t(tab.labelKey)}
+            {tab.literal ?? t(tab.labelKey)}
           </button>
         ))}
       </div>
@@ -62,6 +64,7 @@ export default function ProxyTab() {
         {activeTab === "proxy-pool" && <ProxyPoolTab />}
         {activeTab === "free-pool" && <FreePoolTab />}
         {activeTab === "documentation" && <DocumentationTab />}
+        {activeTab === "subscriptions" && <SubscriptionTab />}
       </div>
     </div>
   );
