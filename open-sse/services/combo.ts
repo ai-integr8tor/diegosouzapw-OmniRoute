@@ -120,6 +120,7 @@ import {
 import {
   validateResponseQuality,
   releaseQualityClone,
+  releaseRejectedQualityResponse,
   toRetryAfterDisplayValue,
 } from "./combo/validateQuality.ts";
 import { resolveComboCooldownWaitDecision } from "./combo/comboCooldownRetry.ts";
@@ -775,6 +776,7 @@ export async function handleComboChat({
           );
           releaseQualityClone(pinnedClone, pinnedResult, pinnedQuality);
           if (pinnedQuality.valid) return pinnedResult;
+          releaseRejectedQualityResponse(pinnedClone, pinnedResult);
           log.warn(
             "COMBO",
             `Pinned model ${pinnedModel} returned 200 but failed quality check: ${pinnedQuality.reason}, falling through to combo retry/fallback`
@@ -1723,6 +1725,7 @@ export async function handleComboChat({
             );
             releaseQualityClone(qualityClone, result, quality);
             if (!quality.valid) {
+              releaseRejectedQualityResponse(qualityClone, result);
               log.warn(
                 "COMBO",
                 `Model ${modelStr} returned 200 but failed quality check: ${quality.reason}`
@@ -2831,6 +2834,7 @@ async function handleRoundRobinCombo({
           );
           releaseQualityClone(rrClone, result, quality);
           if (!quality.valid) {
+            releaseRejectedQualityResponse(rrClone, result);
             log.warn(
               "COMBO-RR",
               `${modelStr} returned 200 but failed quality check: ${quality.reason}`
