@@ -99,7 +99,16 @@ function sanitizeOutputContent(record: JsonRecord): JsonRecord {
   // Responses input. In that shape OpenAI validates `input[n].output[m].type`
   // against output content part types, so legacy Chat-style `image_url` parts
   // must be normalized here too, not only in message.content.
-  const role = record.type === "function_call_output" ? "user" : "assistant";
+  //
+  // #7356: `function_call_output` and `custom_tool_call_output` are both tool
+  // RESULTS being submitted back as input — their `.output` entries must stay
+  // input content types (input_text/input_image), same as a user message. Only
+  // a `message` item's own `output`/`content` (the model's own text) is
+  // "assistant" output that gets flattened to output_text.
+  const role =
+    record.type === "function_call_output" || record.type === "custom_tool_call_output"
+      ? "user"
+      : "assistant";
   const output = record.output.map((part) => sanitizeContentPart(part, role));
   return { ...record, output };
 }

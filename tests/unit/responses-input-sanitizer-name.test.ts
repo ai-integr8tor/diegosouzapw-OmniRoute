@@ -144,3 +144,43 @@ test("normalizes function_call_output image output parts to input_image", () => 
   });
   assert.equal(JSON.stringify(result).includes('"type":"image_url"'), false);
 });
+
+test("leaves custom_tool_call_output input_image output parts untouched (#7356)", () => {
+  const items = [
+    {
+      type: "custom_tool_call_output",
+      call_id: "call_example",
+      output: [
+        { type: "input_text", text: "image tool output" },
+        { type: "input_image", image_url: "data:image/png;base64,AAAA" },
+      ],
+    },
+  ];
+  const result = sanitizeResponsesInputItems(items) as Array<Record<string, unknown>>;
+  assert.deepEqual(result[0], {
+    type: "custom_tool_call_output",
+    call_id: "call_example",
+    output: [
+      { type: "input_text", text: "image tool output" },
+      { type: "input_image", image_url: "data:image/png;base64,AAAA" },
+    ],
+  });
+  assert.equal(JSON.stringify(result).includes('"type":"output_text"'), false);
+});
+
+test("normalizes custom_tool_call_output legacy image_url output parts to input_image (#7356)", () => {
+  const items = [
+    {
+      type: "custom_tool_call_output",
+      call_id: "call_example",
+      output: [{ type: "image_url", image_url: { url: "https://example.com/tool.png" } }],
+    },
+  ];
+  const result = sanitizeResponsesInputItems(items) as Array<Record<string, unknown>>;
+  assert.deepEqual(result[0], {
+    type: "custom_tool_call_output",
+    call_id: "call_example",
+    output: [{ type: "input_image", image_url: "https://example.com/tool.png" }],
+  });
+  assert.equal(JSON.stringify(result).includes('"type":"image_url"'), false);
+});
