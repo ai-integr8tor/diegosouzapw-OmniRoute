@@ -129,7 +129,27 @@ export async function validateResponseQuality(
     let hasContentBlock = false;
     let hasLifecycleEnd = false;
     let anyContentFound = false;
-    let sawAnyBytes = false;
+    // Issue: user log 1784230812441-bf3789 — upstream SSE carried bytes but
+    // never emitted a content block or terminator; the previous
+    // `!sawAnyBytes` guard still allowed pass-through, so the combo did not
+    // failover and OpenCode hung waiting for events that never came.
+    //
+    // We now distinguish two reasons a still-incomplete stream can pass
+    // through under the #3399/#3685 contract:
+    //   - `sawTerminator`     — a recognised terminal marker arrived
+    //                           (`data: [DONE]`, OpenAI `finish_reason`,
+    //                           Claude `message_stop`/`message_delta` with
+    //                           `stop_reason`, terminal `usage` block).
+    //   - `sawStructuredSSE`  — a parseable `data:` or `event:` frame was
+    //                           processed (ping / metadata / partial
+    //                           lifecycle that the downstream SSE parser
+    //                           is still allowed to handle).
+    //
+    // Only when NEITHER is true do we mark the stream invalid and trigger
+    // combo failover. Raw byte garbage with no structured SSE activity
+    // is the actual silent-stop case and must not pass through.
+    let sawTerminator = false;
+    let sawStructuredSSE = false;
     const sseLineNormalizer = createSSEDataLineNormalizer();
     let pendingEventType = "";
 
@@ -151,6 +171,10 @@ export async function validateResponseQuality(
 
         if (trimmed.startsWith("event:")) {
           pendingEventType = trimmed.slice(6).trim();
+          // `event:` lines are part of structured SSE framing even when
+          // they have no payload yet (e.g. `event: ping`). Track so the
+          // done branch keeps the #3399 pass-through contract.
+          sawStructuredSSE = true;
           continue;
         }
 
@@ -160,7 +184,14 @@ export async function validateResponseQuality(
         }
 
         const data = trimmed.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
+        if (!data) continue;
+        // `data: [DONE]` is the OpenAI/standard SSE terminator. Track it
+        // so the done branch can distinguish "provider said it was done"
+        // from "stream just ended mid-flight".
+        if (data === "[DONE]") {
+          sawTerminator = true;
+          continue;
+        }
 
         let parsed: Record<string, unknown>;
         try {
@@ -169,12 +200,42 @@ export async function validateResponseQuality(
           continue;
         }
 
+        // Successfully parsed a `data:` payload — that is structured SSE
+        // activity, regardless of whether it carries content.
+        sawStructuredSSE = true;
+
         const eventType =
           (typeof parsed.type === "string" ? parsed.type : null) || pendingEventType || "";
         pendingEventType = "";
 
         if (isKnownNonClaudeStreamPayload(parsed, eventType)) {
           return true;
+        }
+
+        // Detect OpenAI `finish_reason` in a delta — a recognised stream
+        // terminator even when there is no content delta alongside it.
+        if (Array.isArray(parsed.choices)) {
+          for (const choice of parsed.choices) {
+            if (
+              choice &&
+              typeof choice === "object" &&
+              (choice as Record<string, unknown>).finish_reason
+            ) {
+              sawTerminator = true;
+              break;
+            }
+          }
+        }
+
+        // Detect terminal `usage`-only chunks (some providers send the
+        // usage block as the final SSE frame without a choices array).
+        if (
+          parsed.usage &&
+          typeof parsed.usage === "object" &&
+          !Array.isArray(parsed.choices) &&
+          !eventType.startsWith("response.")
+        ) {
+          sawTerminator = true;
         }
 
         switch (eventType) {
@@ -189,6 +250,7 @@ export async function validateResponseQuality(
             return true;
           case "message_stop":
             hasLifecycleEnd = true;
+            sawTerminator = true;
             break;
           case "message_delta": {
             const delta = parsed.delta;
@@ -198,6 +260,7 @@ export async function validateResponseQuality(
               (delta as Record<string, unknown>).stop_reason != null
             ) {
               hasLifecycleEnd = true;
+              sawTerminator = true;
             }
             break;
           }
@@ -273,10 +336,15 @@ export async function validateResponseQuality(
           // (an explicit `data: [DONE]`, ping/metadata events, an incomplete
           // Claude lifecycle) keep the pass-through contract (#3399/#3685):
           // those are handled by the stream-readiness timeout, not failover.
-          if (!anyContentFound && !hasContentBlock && !sawAnyBytes) {
+          //
+          // Tightened from `!sawAnyBytes` after log 1784230812441-bf3789 —
+          // raw byte garbage that never produced a parseable `data:` /
+          // `event:` frame and never signalled termination was being passed
+          // through, leaving OpenCode hung on the half-finished stream.
+          if (!anyContentFound && !hasContentBlock && !sawTerminator && !sawStructuredSSE) {
             log.warn?.(
               "COMBO",
-              "Streaming response ended with no recognized content — marking as invalid for combo failover"
+              "Streaming response ended with no recognized content or SSE terminator — marking as invalid for combo failover"
             );
             return { valid: false, reason: "streaming no recognized content" };
           }
@@ -290,7 +358,6 @@ export async function validateResponseQuality(
 
         // Accumulate raw bytes for potential replay.
         bufferedChunks.push(value);
-        if (value && value.length > 0) sawAnyBytes = true;
 
         // Decode incrementally (stream:true keeps multi-byte char state).
         decodedSoFar += decoder.decode(value, { stream: true });
@@ -379,7 +446,9 @@ export async function validateResponseQuality(
   if (errorIsMeaningful) {
     const envelopeText = extractEnvelopeErrorText(json);
     const errMsg =
-      rawError && typeof rawError === "object" && typeof (rawError as Record<string, unknown>).message === "string"
+      rawError &&
+      typeof rawError === "object" &&
+      typeof (rawError as Record<string, unknown>).message === "string"
         ? ((rawError as Record<string, unknown>).message as string)
         : envelopeText || JSON.stringify(rawError).substring(0, 200);
     return { valid: false, reason: `upstream error in 200 body: ${errMsg}` };
@@ -387,8 +456,7 @@ export async function validateResponseQuality(
   {
     const envelopeText = extractEnvelopeErrorText(json);
     if (envelopeText && EXHAUSTION_MARKER_PATTERN.test(envelopeText)) {
-      const snippet =
-        envelopeText.length > 80 ? `${envelopeText.slice(0, 80)}…` : envelopeText;
+      const snippet = envelopeText.length > 80 ? `${envelopeText.slice(0, 80)}…` : envelopeText;
       return { valid: false, reason: `upstream exhaustion marker in 200 body: ${snippet}` };
     }
   }
