@@ -55,6 +55,7 @@ export const RERANK_PROVIDERS = {
     baseUrl: "https://api.voyageai.com/v1/rerank",
     authType: "apikey",
     authHeader: "bearer",
+    format: "voyage", // Voyage AI is Cohere-compatible except it rejects top_n (#7350)
     models: [
       { id: "rerank-2.5", name: "Rerank 2.5" },
       { id: "rerank-2.5-lite", name: "Rerank 2.5 Lite" },

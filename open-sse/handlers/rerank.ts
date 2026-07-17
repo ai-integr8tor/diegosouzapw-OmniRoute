@@ -12,6 +12,8 @@ import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { calculateModalCost } from "@/lib/usage/costCalculator";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { saveCallLog } from "@/lib/usageDb";
+import { resolveProxyForConnection } from "@/lib/db/settings";
+import { runWithProxyContext } from "../utils/proxyFetch.ts";
 
 /**
  * Build authorization header for a rerank provider
@@ -45,6 +47,15 @@ function buildAuthHeader(providerConfig, token) {
       documents: (body.documents || []).map((doc) =>
         typeof doc === "string" ? doc : doc.text || ""
       ),
+    };
+  }
+  // Voyage AI is Cohere-compatible except it uses top_k instead of top_n (#7350).
+  // Map top_n → top_k so the user's requested limit is preserved.
+  if (providerConfig.format === "voyage") {
+    const { top_n, ...rest } = body;
+    return {
+      ...rest,
+      ...(typeof top_n === "number" && top_n > 0 ? { top_k: top_n } : {}),
     };
   }
   // Default: Cohere-compatible format (used by Together, Fireworks, Cohere, SiliconFlow)
@@ -94,6 +105,24 @@ function buildAuthHeader(providerConfig, token) {
       },
     };
   }
+  // Voyage AI returns {data:[…]} (not results[]), each item has document as a raw string
+  // (not {text:string}), and no Cohere-style meta block. Map to Cohere format (#7350).
+  if (providerConfig.format === "voyage") {
+    const returnDocuments = options.return_documents !== false;
+    const results = (data.data || data.results || []).map((r) => ({
+      index: r.index,
+      relevance_score: r.relevance_score || 0,
+      ...(returnDocuments && r.document != null ? { document: { text: String(r.document) } } : {}),
+    }));
+    return {
+      id: data.id != null ? String(data.id) : `rerank-${Date.now()}`,
+      results,
+      meta: {
+        api_version: { version: "2" },
+        billed_units: { search_units: 1 },
+      },
+    };
+  }
   return data;
 }
 
@@ -107,6 +136,7 @@ function buildAuthHeader(providerConfig, token) {
  * @param {number} [options.top_n] - Number of top results to return
  * @param {boolean} [options.return_documents] - Whether to include document text in results
  * @param {Object} options.credentials - Provider credentials { apiKey, accessToken }
+ * @param {string} [options.connectionId] - Connection ID for per-connection proxy resolution
  * @returns {Response}
  */
 /** @returns {Promise<unknown>} */
@@ -117,6 +147,7 @@ export async function handleRerank({
   top_n,
   return_documents,
   credentials,
+  connectionId = null,
 }) {
   const startTime = Date.now();
   if (!model) return errorResponse(400, "model is required");
@@ -156,8 +187,18 @@ export async function handleRerank({
       ? `${providerConfig.baseUrl}/${modelId}`
       : providerConfig.baseUrl;
 
-  try {
-    const res = await fetch(rerankUrl, {
+  // Resolve per-connection proxy so rerank honors the same proxy pinning as chat
+  // and embeddings (#7350). Without this, rerank requests egress directly and fail
+  // when the provider blocks certain IP ranges (e.g. Voyage AI from Russian IPs).
+  let proxyInfo: Awaited<ReturnType<typeof resolveProxyForConnection>> | null = null;
+  if (connectionId) {
+    try {
+      proxyInfo = await resolveProxyForConnection(connectionId);
+    } catch {}
+  }
+
+  const doFetch = () =>
+    fetch(rerankUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -165,6 +206,11 @@ export async function handleRerank({
       },
       body: JSON.stringify(requestBody),
     });
+
+  try {
+    const res = connectionId
+      ? await runWithProxyContext(proxyInfo?.proxy || null, doFetch)
+      : await doFetch();
 
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
