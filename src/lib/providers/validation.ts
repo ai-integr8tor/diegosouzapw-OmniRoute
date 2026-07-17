@@ -18,10 +18,7 @@ import { validateQoderCliPat } from "@omniroute/open-sse/services/qoderCli.ts";
 import { validateImageProviderApiKey } from "@/lib/providers/imageValidation";
 import { KiroService } from "@/lib/oauth/services/kiro";
 import { usesCcWireImage } from "@omniroute/open-sse/services/ccWireImageBuiltins.ts";
-import {
-  buildProviderHeaders,
-  buildProviderUrl,
-} from "@omniroute/open-sse/services/provider.ts";
+import { buildProviderHeaders, buildProviderUrl } from "@omniroute/open-sse/services/provider.ts";
 
 import {
   OPENAI_LIKE_FORMATS,
@@ -155,7 +152,7 @@ export async function validateWebCookieProvider({
     const baseUrl = normalizeBaseUrl(entry.baseUrl || "");
     const testUrl = `${baseUrl}/models`;
 
-    const res = await directHttpsRequest(
+    const res = await validationRead(
       testUrl,
       {
         method: "GET",
@@ -164,7 +161,7 @@ export async function validateWebCookieProvider({
           Cookie: cookie,
         },
       },
-      10_000
+      isLocalProvider(provider)
     );
 
     if (res.status === 401 || res.status === 403) {

@@ -466,6 +466,14 @@ declare global {
   // Next.js HMR re-evaluations so concurrent subsystems all see the same
   // count and we abort with a clear error instead of looping forever.
   var __omnirouteDbProbeRestoreCount: number | undefined;
+  // Cycle-breaker counter for the OOM-during-probe path (#6835). Unlike the
+  // generic corruption path above, an OOM probe failure never renames the
+  // file away (intentional — the DB may be perfectly fine, just too large
+  // for the current heap), so the restore-count cap above is structurally
+  // unreachable here. Without an independent cap, every background poller
+  // (BATCH, HealthCheck, ProviderLimitsSync, ModelSync) re-throws the same
+  // OOM error forever with no terminal diagnostic.
+  var __omnirouteDbOomFailureCount: number | undefined;
 }
 
 function getDb(): SqliteDatabase | null {
@@ -1020,8 +1028,7 @@ export function getDbInstance(): SqliteDatabase {
         let hasData = false;
         try {
           const count = probe.prepare("SELECT COUNT(*) as c FROM provider_connections").get() as
-            | { c: number }
-            | undefined;
+            { c: number } | undefined;
           hasData = Boolean(count && count.c > 0);
         } catch {
           // Table might not exist at all — truly incompatible
@@ -1075,7 +1082,27 @@ export function getDbInstance(): SqliteDatabase {
       // V8 heap (sql.js loads the whole file into WASM memory). Throwing
       // immediately gives the user a clear "increase --max-old-space-size"
       // signal instead of silently renaming a perfectly good DB.
-      if (/out of memory|allocation failure|Array buffer allocation failed|allocation failed/i.test(message)) {
+      if (
+        /out of memory|allocation failure|Array buffer allocation failed|allocation failed/i.test(
+          message
+        )
+      ) {
+        // Cycle-breaker (#6835): the OOM path never renames the file away,
+        // so it never trips the generic probe-failed/restore cap above. Cap
+        // it independently after 3 consecutive OOM failures (same threshold
+        // as the generic path) so repeated polling doesn't hang forever with
+        // no actionable terminal diagnostic.
+        if (
+          (globalThis.__omnirouteDbOomFailureCount =
+            (globalThis.__omnirouteDbOomFailureCount || 0) + 1) > 3
+        ) {
+          throw new Error(
+            `[DB] Aborting startup: persistent out-of-memory probing ${sqliteFile} after 3 attempts. ` +
+              `Increase the V8 heap with NODE_OPTIONS=--max-old-space-size=4096 (or higher) — the ` +
+              `current heap is insufficient for this database — and restart, or shrink/restore the ` +
+              `database from a backup. Original error: ${message}`
+          );
+        }
         throw new Error(
           `[DB] Out of memory while probing ${sqliteFile}. ` +
             `The bundled sql.js driver loads the entire file into WASM memory; ` +

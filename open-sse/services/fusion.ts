@@ -27,12 +27,20 @@ export const FUSION_DEFAULTS = {
   minPanel: 2, // answers needed before stragglers get a grace window
   stragglerGraceMs: 8000, // wait this long for laggards once quorum is reached
   panelHardTimeoutMs: 90000, // absolute cap so one hung model can't stall forever
+  // Hard cap on panel size (issue #1905). Every panel member is fanned out in
+  // parallel and its full response text buffered in memory simultaneously —
+  // with the runtime heap capped (Dockerfile OMNIROUTE_MEMORY_MB, default
+  // 1024MB), a large panel (reported: ~73 models) with sizable concurrent
+  // responses can exceed the heap ceiling and OOM-crash the whole process.
+  // Reject oversized panels up front with a clean 400 instead.
+  maxPanel: 40,
 } as const;
 
 export type FusionTuning = {
   minPanel?: number;
   stragglerGraceMs?: number;
   panelHardTimeoutMs?: number;
+  maxPanel?: number;
 };
 
 type Body = Record<string, unknown>;
@@ -64,8 +72,7 @@ export function extractPanelText(json: unknown): string {
   // Gemini (parts carry .text without a type discriminator)
   const candidates = j.candidates as Array<Record<string, unknown>> | undefined;
   const parts = (candidates?.[0]?.content as Record<string, unknown> | undefined)?.parts as
-    | Array<{ text?: unknown }>
-    | undefined;
+    Array<{ text?: unknown }> | undefined;
   if (Array.isArray(parts)) {
     const t = parts.map((p) => (typeof p?.text === "string" ? p.text : "")).join("");
     if (t.trim()) return t;
@@ -100,10 +107,7 @@ export function appendUserTurn(body: Body, text: string): Body {
   } else if (Array.isArray(body.input)) {
     next.input = [...(body.input as unknown[]), { role: "user", content: text }];
   } else if (Array.isArray(body.contents)) {
-    next.contents = [
-      ...(body.contents as unknown[]),
-      { role: "user", parts: [{ text }] },
-    ];
+    next.contents = [...(body.contents as unknown[]), { role: "user", parts: [{ text }] }];
   } else {
     next.messages = [{ role: "user", content: text }];
   }
@@ -139,10 +143,7 @@ export function buildJudgePrompt(answers: Array<{ text: string }>): string {
 type Sentinel = { __timeout?: true; __error?: unknown };
 
 // Resolve a Response (or sentinel) within ms; the loser keeps running but is ignored.
-function withTimeout(
-  promise: Promise<Response>,
-  ms: number
-): Promise<Response | Sentinel> {
+function withTimeout(promise: Promise<Response>, ms: number): Promise<Response | Sentinel> {
   return new Promise((resolve) => {
     const t = setTimeout(() => resolve({ __timeout: true }), ms);
     Promise.resolve(promise)
@@ -246,6 +247,21 @@ export async function handleFusionChat({
     return handleSingleModel(body, panel[0]);
   }
 
+  // Reject an oversized panel BEFORE fan-out (issue #1905): fanning out N
+  // parallel calls and buffering N full response bodies at once is what
+  // drives the process into an OOM crash, not any one call in isolation.
+  const maxPanel = tuning?.maxPanel ?? FUSION_DEFAULTS.maxPanel;
+  if (panel.length > maxPanel) {
+    log.warn(
+      "FUSION",
+      `Combo "${comboName ?? ""}" panel=${panel.length} exceeds maxPanel=${maxPanel} — rejecting before fan-out (#1905)`
+    );
+    return errorResponse(
+      400,
+      `Fusion panel too large (${panel.length} models, max ${maxPanel}) — reduce the combo's target count or raise fusionTuning.maxPanel`
+    );
+  }
+
   const cfg = {
     minPanel: tuning?.minPanel ?? FUSION_DEFAULTS.minPanel,
     stragglerGraceMs: tuning?.stragglerGraceMs ?? FUSION_DEFAULTS.stragglerGraceMs,
@@ -344,10 +360,7 @@ export async function handleFusionChat({
     // synthesizing from a single source through itself would be redundant —
     // answer directly with the lone survivor (issue #6454).
     if (!hasExplicitJudge) {
-      log.info(
-        "FUSION",
-        `Only ${answers[0].model} succeeded — answering directly (no fusion)`
-      );
+      log.info("FUSION", `Only ${answers[0].model} succeeded — answering directly (no fusion)`);
       return handleSingleModel(body, answers[0].model);
     }
     // An explicit judgeModel IS configured: honor it even with a single
