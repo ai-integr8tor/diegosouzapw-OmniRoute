@@ -9,6 +9,7 @@
 export {
   // Provider Connections
   getProviderConnections,
+  getProviderConnectionsCount,
   getProviderConnectionById,
   createProviderConnection,
   updateProviderConnection,
@@ -18,15 +19,13 @@ export {
   deleteProviderConnectionsByProvider,
   reorderProviderConnections,
   cleanupProviderConnections,
-
-  // Provider Nodes
   getProviderNodes,
+  getProviderNodesCount,
   getProviderNodeById,
   resolveProviderNodeForConnection,
   createProviderNode,
   updateProviderNode,
   deleteProviderNode,
-
   // T05: Rate-limit DB persistence (survives token refresh)
   setConnectionRateLimitUntil,
   isConnectionRateLimited,
@@ -82,6 +81,7 @@ export type { ModelCompatPerProtocol, ModelCompatPatch, SyncedAvailableModel } f
 export {
   // Combos
   getCombos,
+  getCombosCount,
   getComboById,
   getComboByName,
   getComboByNameInsensitive,
@@ -97,8 +97,8 @@ export * from "./db/compressionRunTelemetry";
 export * from "./db/modelContextOverrides";
 
 export {
-  // API Keys
   getApiKeys,
+  getApiKeysCount,
   getApiKeyById,
   createApiKey,
   deleteApiKey,
