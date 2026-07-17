@@ -622,6 +622,20 @@ function flushEvents(state) {
  */
 function withAssistantRoleOnFirstDelta(state, result) {
   if (!result || state.roleEmitted) return result;
+
+  // Handle arrays of chunks (e.g. synthesized from response.completed output[])
+  if (Array.isArray(result)) {
+    for (const chunk of result) {
+      const delta = chunk?.choices?.[0]?.delta;
+      if (delta && typeof delta === "object" && !Array.isArray(delta)) {
+        delta.role = "assistant";
+        state.roleEmitted = true;
+        break;
+      }
+    }
+    return result;
+  }
+
   const delta = result.choices?.[0]?.delta;
   if (delta && typeof delta === "object" && !Array.isArray(delta)) {
     delta.role = "assistant";
@@ -770,6 +784,10 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
     state.currentToolCallArgsBuffer = ""; // reset per-call arg buffer
     state.currentToolCallDeferred = false;
 
+    // Track this call_id so response.completed doesn't synthesize a duplicate
+    if (!state.toolCallIdsSeen) state.toolCallIdsSeen = new Set();
+    if (state.currentToolCallId) state.toolCallIdsSeen.add(state.currentToolCallId);
+
     const toolName = normalizeToolName(item.name);
     if (!toolName) {
       // Some Responses providers briefly emit placeholder/empty tool names.
@@ -848,6 +866,10 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
     const callId = item.call_id || state.currentToolCallId || fallbackToolCallId();
     const toolName = normalizeToolName(item.name);
     const toolSchema = state.toolSchemas?.get(toolName);
+
+    // Track this call_id so response.completed doesn't synthesize a duplicate
+    if (!state.toolCallIdsSeen) state.toolCallIdsSeen = new Set();
+    if (callId) state.toolCallIdsSeen.add(callId);
 
     if (state.currentToolCallDeferred) {
       state.currentToolCallDeferred = false;
@@ -977,6 +999,135 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
           reasoning_tokens: reasoningTokens,
         };
       }
+    }
+
+    // ---------------------------------------------------------------------------
+    // #fix: Synthesize tool call chunks from response.completed output[] when the
+    // upstream provider sent a batched completed event WITHOUT first emitting the
+    // individual response.output_item.added / .delta / .done events. Without this,
+    // state.toolCallIndex stays 0 and state.currentToolCallId stays null, so
+    // computeFinishReason returns "stop" instead of "tool_calls", breaking the
+    // agent loop for downstream Chat Completions clients.
+    // ---------------------------------------------------------------------------
+    const outputItems = Array.isArray(data.response?.output) ? data.response.output : [];
+    // Filter out function_call items whose call_ids were already tracked via
+    // incremental events (output_item.added → .done). This prevents double-emission
+    // when the provider streams incrementally AND response.completed echoes the same
+    // function_call items in its output[] snapshot.
+    const functionCallItems = outputItems.filter(
+      (item) => item?.type === "function_call" && !state.toolCallIdsSeen?.has(item.call_id)
+    );
+
+    if (functionCallItems.length > 0 && !state.finishReasonSent) {
+      const synthesizedChunks: Record<string, unknown>[] = [];
+
+      for (const fcItem of functionCallItems) {
+        const callId = fcItem.call_id || fallbackToolCallId(state.toolCallIndex);
+        const toolName = normalizeToolName(fcItem.name);
+        const toolSchema = state.toolSchemas?.get(toolName);
+
+        // Set state as output_item.added would
+        state.currentToolCallId = callId;
+        state.currentToolCallArgsBuffer = "";
+        state.currentToolCallDeferred = false;
+
+        // Emit the tool call header chunk (id, type, function.name)
+        const currentIndex = state.toolCallIndex;
+        synthesizedChunks.push({
+          id: state.chatId,
+          object: "chat.completion.chunk",
+          created: state.created,
+          model: state.model || "gpt-4",
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: currentIndex,
+                    id: callId,
+                    type: "function",
+                    function: {
+                      name: toolName || "",
+                      arguments: "",
+                    },
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        });
+
+        // Process arguments — may be string or object
+        const rawArgs = fcItem.arguments;
+        const argsToEmit = stripEmptyOptionalToolArgs(rawArgs, toolName, toolSchema);
+        const argsStr =
+          argsToEmit != null
+            ? typeof argsToEmit === "string"
+              ? argsToEmit
+              : JSON.stringify(argsToEmit)
+            : rawArgs != null
+              ? typeof rawArgs === "string"
+                ? rawArgs
+                : JSON.stringify(rawArgs)
+              : "";
+
+        if (argsStr) {
+          state.currentToolCallArgsBuffer = argsStr;
+          synthesizedChunks.push({
+            id: state.chatId,
+            object: "chat.completion.chunk",
+            created: state.created,
+            model: state.model || "gpt-4",
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  tool_calls: [
+                    {
+                      index: currentIndex,
+                      function: { arguments: argsStr },
+                    },
+                  ],
+                },
+                finish_reason: null,
+              },
+            ],
+          });
+        }
+
+        // Advance state as output_item.done would
+        state.toolCallIndex++;
+        state.currentToolCallArgsBuffer = "";
+        state.currentToolCallId = null;
+      }
+
+      // Now emit the final chunk with finish_reason: "tool_calls" and usage
+      state.finishReasonSent = true;
+      const reason = computeFinishReason(state);
+      state.finishReason = reason;
+
+      const finalChunk: Record<string, unknown> = {
+        id: state.chatId,
+        object: "chat.completion.chunk",
+        created: state.created,
+        model: state.model || "gpt-4",
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: reason,
+          },
+        ],
+      };
+
+      if (state.usage && typeof state.usage === "object") {
+        finalChunk.usage = state.usage;
+      }
+
+      synthesizedChunks.push(finalChunk);
+      return synthesizedChunks;
     }
 
     if (!state.finishReasonSent) {
