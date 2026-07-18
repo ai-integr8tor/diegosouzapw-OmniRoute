@@ -69,7 +69,18 @@ export function sanitizeReasoningEffortForProvider(
       ? (b.reasoning as Record<string, unknown>)
       : null;
   const hasTopLevelReasoningEffort = Object.prototype.hasOwnProperty.call(b, "reasoning_effort");
-  const effort = b.reasoning_effort ?? reasoning?.effort;
+  // #7044: native Claude requests carry effort in `output_config.effort`, not the
+  // OpenAI-style reasoning_effort/reasoning.effort. Treat it as an additional carrier
+  // so the provider-aware sanitizer can normalize/downgrade it too (e.g. xhigh → high
+  // for Sonnet 4.6, which opts out of xhigh). Only falls back to it when neither
+  // OpenAI-style carrier is present.
+  const outputConfig =
+    b.output_config && typeof b.output_config === "object" && !Array.isArray(b.output_config)
+      ? (b.output_config as Record<string, unknown>)
+      : null;
+  const hasOutputConfigEffort =
+    !!outputConfig && Object.prototype.hasOwnProperty.call(outputConfig, "effort");
+  const effort = b.reasoning_effort ?? reasoning?.effort ?? outputConfig?.effort;
   if (effort === undefined) return body;
   const effortStr = typeof effort === "string" ? effort.toLowerCase() : "";
   const modelStr = model || "";
@@ -114,6 +125,7 @@ export function sanitizeReasoningEffortForProvider(
       const next: Record<string, unknown> = { ...b };
       if (hasTopLevelReasoningEffort) next.reasoning_effort = mapped;
       if (reasoning) next.reasoning = { ...reasoning, effort: mapped };
+      if (hasOutputConfigEffort) next.output_config = { ...outputConfig, effort: mapped };
       return next;
     }
     return body;
@@ -138,6 +150,9 @@ export function sanitizeReasoningEffortForProvider(
     if (reasoning) {
       next.reasoning = { ...reasoning, effort: "xhigh" };
     }
+    if (hasOutputConfigEffort) {
+      next.output_config = { ...outputConfig, effort: "xhigh" };
+    }
     return next;
   }
 
@@ -152,6 +167,9 @@ export function sanitizeReasoningEffortForProvider(
     }
     if (reasoning) {
       next.reasoning = { ...reasoning, effort: "high" };
+    }
+    if (hasOutputConfigEffort) {
+      next.output_config = { ...outputConfig, effort: "high" };
     }
     return next;
   }
