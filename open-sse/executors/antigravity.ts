@@ -1070,7 +1070,37 @@ export class AntigravityExecutor extends BaseExecutor {
     let firstResult: Awaited<ReturnType<AntigravityExecutor["executeOnce"]>> | null = null;
     for (let i = 0; i < chain.length; i++) {
       const candidate = chain[i];
-      const result = await this.executeOnce(input, candidate);
+      let result: Awaited<ReturnType<AntigravityExecutor["executeOnce"]>>;
+      try {
+        result = await this.executeOnce(input, candidate);
+      } catch (error) {
+        // Abort signal (user disconnect) — propagate immediately, do not retry.
+        const isAbort =
+          input.signal?.aborted ||
+          (error instanceof DOMException && error.name === "AbortError") ||
+          (error instanceof Error && error.name === "AbortError");
+        if (isAbort) {
+          throw error;
+        }
+        if (i < chain.length - 1) {
+          input.log?.debug?.(
+            "AG_PRO_FALLBACK",
+            `Exception on "${candidate}" (${error instanceof Error ? error.message : String(error)}) -- retrying with next Pro candidate "${chain[i + 1]}"`
+          );
+          continue;
+        }
+        // Last candidate also threw -- return original 400 if available, otherwise throw.
+        if (firstResult) {
+          input.log?.warn?.(
+            "AG_PRO_FALLBACK",
+            `Pro fallback chain exhausted (last candidate threw, but first candidate returned 400) for "${resolvedUpstreamId}". Returning original 400.`
+          );
+          return firstResult;
+        }
+        throw new Error(
+          `Pro fallback chain exhausted (all ${chain.length} candidates failed). Last error: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
 
       // Success (or any non-400) on a candidate → return immediately.
       if (result.response.status !== HTTP_STATUS.BAD_REQUEST) {
@@ -1078,7 +1108,7 @@ export class AntigravityExecutor extends BaseExecutor {
       }
 
       // Remember the FIRST 400 so the exhausted-chain case surfaces the original error.
-      if (i === 0) firstResult = result;
+      if (!firstResult) firstResult = result;
 
       const isLast = i === chain.length - 1;
       if (!isLast) {
