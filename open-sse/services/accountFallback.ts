@@ -390,6 +390,9 @@ export async function getRuntimeProviderProfile(provider: string | null | undefi
 // ─── Per-Model Lockout Tracking ─────────────────────────────────────────────
 // In-memory map: "provider:connectionId:model" → { reason, until, lockedAt }
 const modelLockouts = new Map<string, ModelLockoutEntry>();
+// Cap prevents unbounded growth under sustained load. Entries beyond this limit
+// are evicted (oldest first, in insertion order) during the periodic cleanup.
+export const MODEL_LOCKOUT_EVICTION_CAP = 1000;
 const modelFailureState = new Map<string, ModelFailureState>();
 
 // Aliases (e.g. "cx" → "codex") must share lockout state with their canonical
@@ -467,6 +470,7 @@ function ensureCleanupTimer() {
       const now = Date.now();
       for (const key of modelLockouts.keys()) cleanupModelLockKey(key, now);
       for (const key of modelFailureState.keys()) cleanupModelLockKey(key, now);
+      evictModelLockoutOverflow();
     }, 15_000);
     if (typeof _cleanupTimer === "object" && "unref" in _cleanupTimer) {
       (_cleanupTimer as { unref?: () => void }).unref?.(); // Don't prevent process exit (Node.js only)
@@ -474,6 +478,44 @@ function ensureCleanupTimer() {
   } catch {
     // Cloudflare Workers may not support setInterval outside handlers — skip cleanup timer
   }
+}
+
+/** @internal exported for testing only */
+export function evictModelLockoutOverflow(): void {
+  // Evict oldest (insertion-order) entries when cap exceeded — but NEVER a
+  // still-active (until > now) lockout: cleanupModelLockKey() already ran on
+  // every key this tick, so anything active left here is a real, in-progress
+  // cooldown, and dropping it would wrongly let routing resume to it. If the
+  // map is still over cap purely from active entries, the cap is a soft
+  // bound in that rare case rather than a correctness trade-off.
+  if (modelLockouts.size > MODEL_LOCKOUT_EVICTION_CAP) {
+    const overflow = modelLockouts.size - MODEL_LOCKOUT_EVICTION_CAP;
+    const now = Date.now();
+    // Only expired entries are eviction candidates (oldest-first, up to the
+    // overflow count) — active ones never appear in this list at all.
+    const evictableKeys = [...modelLockouts.entries()]
+      .filter(([, entry]) => entry.until <= now)
+      .slice(0, overflow)
+      .map(([key]) => key);
+    for (const key of evictableKeys) {
+      modelLockouts.delete(key);
+      modelFailureState.delete(key);
+    }
+  }
+  if (modelFailureState.size > MODEL_LOCKOUT_EVICTION_CAP) {
+    const overflow = modelFailureState.size - MODEL_LOCKOUT_EVICTION_CAP;
+    let evicted = 0;
+    for (const key of modelFailureState.keys()) {
+      if (evicted >= overflow) break;
+      if (!modelLockouts.has(key)) modelFailureState.delete(key);
+      evicted++;
+    }
+  }
+}
+
+/** @internal exported for testing only — returns modelLockouts map size */
+export function getModelLockoutSize(): number {
+  return modelLockouts.size;
 }
 
 /**
