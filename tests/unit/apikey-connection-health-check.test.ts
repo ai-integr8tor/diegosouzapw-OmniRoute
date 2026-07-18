@@ -171,3 +171,72 @@ test("connection with both apiKey and refreshToken: refresh path is tried", asyn
     "dual-auth connection with stale refresh token should be expired (refresh path takes precedence)"
   );
 });
+
+test("sweep processes all connections with stagger + jitter delay", async () => {
+  await resetStorage();
+
+  // Create multiple connections; set isActive=false so checkConnection
+  // returns immediately at the !conn.isActive guard without OAuth calls.
+  const c1 = await providersDb.createProviderConnection({
+    provider: "openai",
+    authType: "oauth",
+    name: "Stagger Test 1",
+    email: "t1@example.com",
+    refreshToken: "test-rt",
+    isActive: false,
+  });
+  const c2 = await providersDb.createProviderConnection({
+    provider: "openai",
+    authType: "oauth",
+    name: "Stagger Test 2",
+    email: "t2@example.com",
+    refreshToken: "test-rt",
+    isActive: false,
+  });
+  const c3 = await providersDb.createProviderConnection({
+    provider: "openai",
+    authType: "oauth",
+    name: "Stagger Test 3",
+    email: "t3@example.com",
+    refreshToken: "test-rt",
+    isActive: false,
+  });
+
+  // Clear any health-check skip config
+  const origSetting = process.env.HEALTHCHECK_SKIP_PROVIDERS;
+  delete process.env.HEALTHCHECK_SKIP_PROVIDERS;
+  process.env.HEALTHCHECK_STAGGER_MS = "100";
+
+  try {
+    // Import sweep — exported for testing from tokenHealthCheck
+    const { sweep } = await import("../../src/lib/tokenHealthCheck.ts");
+
+    const start = Date.now();
+    await sweep();
+    const elapsed = Date.now() - start;
+
+    // 3 connections -> 2 stagger gaps. Each gap waits
+    // HEALTHCHECK_STAGGER_MS (100ms) PLUS a jitter of
+    // [MIN_RESTART_REFRESH_JITTER_MS, MAX_RESTART_REFRESH_JITTER_MS) = [500, 5000)ms,
+    // so the true floor is 2 * (100 + 500) = 1200ms — that floor is a hard
+    // guarantee (setTimeout never fires early), not a probabilistic one.
+    // Without the jitter change, 2 gaps of a plain 100ms stagger only ever
+    // total ~200ms, so >= 1000ms cleanly fails on the pre-jitter behavior
+    // while leaving comfortable margin under the real 1200ms floor.
+    assert.ok(
+      elapsed >= 1000,
+      `sweep took ${elapsed}ms — expected >= 1000ms with stagger + jitter (floor is 1200ms)`
+    );
+
+    // Verify all connections still exist (sweep didn't error out mid-loop)
+    const reloaded1 = await providersDb.getProviderConnectionById(c1.id);
+    const reloaded2 = await providersDb.getProviderConnectionById(c2.id);
+    const reloaded3 = await providersDb.getProviderConnectionById(c3.id);
+    assert.ok(reloaded1, "connection 1 should still exist");
+    assert.ok(reloaded2, "connection 2 should still exist");
+    assert.ok(reloaded3, "connection 3 should still exist");
+  } finally {
+    process.env.HEALTHCHECK_SKIP_PROVIDERS = origSetting;
+    delete process.env.HEALTHCHECK_STAGGER_MS;
+  }
+});
