@@ -1,12 +1,13 @@
 export const PROVIDER_PLUGIN_MANIFEST_HEADER = "X-OmniRoute-Provider-Manifest-Url";
 export const PROVIDER_PLUGIN_MANIFEST_PATH = "/api/v1/provider-plugin-manifest";
+export const PROVIDER_PLUGIN_MANIFEST_ENV = "OMNIROUTE_PROVIDER_MANIFEST_URL";
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
 }
 
 export function resolveProviderPluginManifestUrl(origin?: string | null): string {
-  const configured = process.env.OMNIROUTE_PROVIDER_MANIFEST_URL?.trim();
+  const configured = process.env[PROVIDER_PLUGIN_MANIFEST_ENV]?.trim();
   if (configured) return configured;
 
   if (origin) {
