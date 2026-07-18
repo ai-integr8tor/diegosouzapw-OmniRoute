@@ -137,6 +137,8 @@ import {
   clampComboDepth,
   shouldSkipForPredictedTtft,
   shouldRecordProviderBreakerFailure,
+  isRequestScopedUpstreamFailure,
+  shouldSkipConnDisable,
   resolveDelayMs,
   comboModelNotFoundResponse,
   isStreamReadinessFailureErrorBody,
@@ -162,6 +164,7 @@ import {
   resolveWeightedTargets,
   resolveWeightedStepGroups,
 } from "./combo/comboStructure.ts";
+import { getKnownContextOverflow } from "./combo/knownContextOverflow.ts";
 import {
   QUOTA_SOFT_DEPRIORITIZE_FACTOR,
   setCandidateQuotaSoftPenalty,
@@ -198,10 +201,21 @@ export { QUOTA_SOFT_DEPRIORITIZE_FACTOR, setCandidateQuotaSoftPenalty };
 export { scoreAutoTargets, expandAutoComboCandidatePool };
 export type { SingleModelTarget, ResolvedComboTarget };
 export { validateResponseQuality };
-export { clampComboDepth, shouldSkipForPredictedTtft, shouldRecordProviderBreakerFailure };
+export {
+  clampComboDepth,
+  shouldSkipForPredictedTtft,
+  shouldRecordProviderBreakerFailure,
+  isRequestScopedUpstreamFailure,
+  shouldSkipConnDisable,
+};
 export { resolveShadowTargets, scheduleShadowRouting };
 export { preScreenTargets };
-export { resolveComboRuntimeUnits, resolveComboTargets, filterTargetsByRequestCompatibility };
+export {
+  resolveComboRuntimeUnits,
+  resolveComboTargets,
+  filterTargetsByRequestCompatibility,
+  getKnownContextOverflow,
+};
 export {
   getComboFromData,
   getComboModelsFromData,
@@ -1142,6 +1156,31 @@ export async function handleComboChat({
 
   orderedTargets = await applyRequestTagRouting(orderedTargets, body, log);
 
+  const knownContextOverflow = getKnownContextOverflow(orderedTargets, body);
+  if (knownContextOverflow) {
+    const { requiredContextTokens, maxKnownContextTokens } = knownContextOverflow;
+    log.warn(
+      "COMBO",
+      `Request context exceeds every known target limit (${requiredContextTokens} > ${maxKnownContextTokens} tokens)`
+    );
+    return errorResponseWithComboDiagnostics(
+      400,
+      `Request requires approximately ${requiredContextTokens} tokens, but the largest known context limit in this combo is ${maxKnownContextTokens} tokens. Reduce or compact the request context.`,
+      {
+        poolSize: orderedTargets.length,
+        attempted: 0,
+        excluded: orderedTargets.map((target) => ({
+          provider: target.provider,
+          model: target.modelStr,
+          reason: "context_window",
+        })),
+        attemptOrder: [],
+        terminalReason: "context_length_exceeded",
+      },
+      { code: "context_length_exceeded", type: "invalid_request_error" }
+    );
+  }
+
   if (strategy === "weighted") {
     log.info(
       "COMBO",
@@ -2055,6 +2094,7 @@ export async function handleComboChat({
                       : undefined,
                 }
               : undefined;
+          const requestScopedFailure = isRequestScopedUpstreamFailure(structuredError);
           const fallbackResult = checkFallbackError(
             result.status,
             errorText,
@@ -2167,6 +2207,7 @@ export async function handleComboChat({
               status: result.status,
               sameProviderNext,
               skipProviderBreaker: fallbackResult.skipProviderBreaker,
+              requestScopedFailure,
             })
           ) {
             recordProviderFailure(provider, log, targetWithConnection.connectionId, profile);
@@ -2192,7 +2233,7 @@ export async function handleComboChat({
             // once the model is cooling down, retrying it would waste an upstream
             // call and extend the cooldown via exponential backoff.
             let lockoutRecorded = false;
-            if (provider && rawModel && retry === 0) {
+            if (provider && rawModel && retry === 0 && !requestScopedFailure) {
               const mlSettings = resolveModelLockoutSettings(settings);
               if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
                 recordModelLockoutFailure(
@@ -2235,7 +2276,7 @@ export async function handleComboChat({
           if (i > 0) fallbackCount++;
           // Wire combo failures into the resilience dashboard (model-level lockout)
           // alongside the provider-level cooldown below — they govern different scopes.
-          if (provider && rawModel) {
+          if (provider && rawModel && !requestScopedFailure) {
             const mlSettings = resolveModelLockoutSettings(settings);
             if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
               recordModelLockoutFailure(
@@ -2264,6 +2305,7 @@ export async function handleComboChat({
             resilienceSettings.providerCooldown.enabled &&
             provider &&
             provider !== "unknown" &&
+            !requestScopedFailure &&
             !(result.status === 500 && hasPerModelQuota(provider, rawModel))
           ) {
             recordProviderCooldown(
@@ -2536,6 +2578,25 @@ async function handleRoundRobinCombo({
   );
   const tagFilteredTargets = await applyRequestTagRouting(orderedTargets, body, log);
   const evalRankedTargets = orderTargetsByEvalScores(tagFilteredTargets, config.evalRouting, log);
+  const knownContextOverflow = getKnownContextOverflow(evalRankedTargets, body);
+  if (knownContextOverflow) {
+    return errorResponseWithComboDiagnostics(
+      400,
+      `Request requires approximately ${knownContextOverflow.requiredContextTokens} tokens, but the largest known context limit in this combo is ${knownContextOverflow.maxKnownContextTokens} tokens. Reduce or compact the request context.`,
+      {
+        poolSize: evalRankedTargets.length,
+        attempted: 0,
+        excluded: evalRankedTargets.map((target) => ({
+          provider: target.provider,
+          model: target.modelStr,
+          reason: "context_window",
+        })),
+        attemptOrder: [],
+        terminalReason: "context_length_exceeded",
+      },
+      { code: "context_length_exceeded", type: "invalid_request_error" }
+    );
+  }
   const filteredTargets = filterTargetsByRequestCompatibility(
     evalRankedTargets,
     body,
@@ -3030,6 +3091,7 @@ async function handleRoundRobinCombo({
                     : undefined,
               }
             : undefined;
+        const requestScopedFailure = isRequestScopedUpstreamFailure(structuredError);
         const fallbackResult = checkFallbackError(
           result.status,
           errorText,
@@ -3081,6 +3143,7 @@ async function handleRoundRobinCombo({
         if (
           !isStreamReadinessFailure &&
           !isTokenLimitBreach &&
+          !requestScopedFailure &&
           TRANSIENT_FOR_SEMAPHORE.includes(result.status) &&
           cooldownMs > 0
         ) {
@@ -3123,6 +3186,7 @@ async function handleRoundRobinCombo({
           resilienceSettings.providerCooldown.enabled &&
           provider &&
           provider !== "unknown" &&
+          !requestScopedFailure &&
           !(
             result.status === 500 &&
             hasPerModelQuota(provider, parseModel(modelStr).model || modelStr)
