@@ -471,7 +471,18 @@ function sanitizeAntigravityGeminiRequest(
   const geminiTools = buildGeminiTools(request.tools);
   if (geminiTools) {
     clean.tools = geminiTools;
-    clean.toolConfig = { functionCallingConfig: { mode: "VALIDATED" } };
+    // #6914: Preserve includeServerSideToolInvocations from the raw request's
+    // toolConfig when present (set by transformRequest when tools exist). The
+    // sanitize whitelist would otherwise rebuild toolConfig without it.
+    const rawToolConfig = asRecord(request.toolConfig);
+    const rawFnConfig = asRecord(rawToolConfig?.functionCallingConfig);
+    const includeServerSide = rawFnConfig?.includeServerSideToolInvocations === true;
+    clean.toolConfig = {
+      functionCallingConfig: {
+        mode: "VALIDATED",
+        ...(includeServerSide ? { includeServerSideToolInvocations: true } : {}),
+      },
+    };
   } else if (asRecord(request.toolConfig)) {
     clean.toolConfig = request.toolConfig;
   }
@@ -704,7 +715,7 @@ export class AntigravityExecutor extends BaseExecutor {
       safetySettings: getAntigravitySafetySettings(normalizedRequest?.safetySettings),
       toolConfig:
         Array.isArray(normalizedRequest?.tools) && normalizedRequest.tools.length > 0
-          ? { functionCallingConfig: { mode: "VALIDATED" } }
+          ? { functionCallingConfig: { mode: "VALIDATED", includeServerSideToolInvocations: true } }
           : normalizedRequest?.toolConfig,
     };
 
