@@ -301,7 +301,12 @@ import {
   resolveComboContextLimit,
 } from "../services/contextManager.ts";
 import { resolveBackgroundTaskRedirect } from "./chatCore/backgroundRedirect.ts";
-import type { CompressionConfig, CompressionPipelineStep } from "../services/compression/types.ts";
+import type {
+  CompressionConfig,
+  CompressionPipelineStep,
+  CompressionResult,
+} from "../services/compression/types.ts";
+import { generateSessionId } from "../services/sessionManager.ts";
 import { prepareWebSearchFallbackBody } from "../services/webSearchFallback.ts";
 import { resolveInterceptSearch } from "@/lib/db/interceptionRules";
 import {
@@ -1334,7 +1339,8 @@ export async function handleChatCore({
         // that selectCompressionStrategy can only partially apply via the mode string.
         const cacheCtx = { provider, targetFormat, model: effectiveModel, connectionCacheOverride };
         const compressionConfig = resolveCacheAwareConfig(config, compressionInputBody, cacheCtx);
-        const result = await applyCompressionAsync(compressionInputBody, mode, {
+        const compressionPrincipalId = apiKeyInfo?.id ? String(apiKeyInfo.id) : undefined;
+        const compressionOptions = {
           model: effectiveModel,
           // #7237: feed the AUTHORITATIVE capability (model spec / models.dev sync / DB
           // override, with the conservative model-id fragment heuristic only as its
@@ -1348,10 +1354,11 @@ export async function handleChatCore({
             .supportsVision,
           // Rota direta oficial ('anthropic') vs agregadores: o engine omniglyph
           // exige 'direct' — agregadores redimensionam imagens (medido 2026-07-06).
-          providerTransport: provider === "anthropic" ? "direct" : "aggregator",
+          providerTransport:
+            provider === "anthropic" ? ("direct" as const) : ("aggregator" as const),
           config: compressionConfig,
           cachingContext: cacheCtx,
-          principalId: apiKeyInfo?.id ? String(apiKeyInfo.id) : undefined,
+          principalId: compressionPrincipalId,
           // F3.3: stream per-engine progress live (best-effort) before compression.completed.
           onEngineStep: (s) => {
             try {
@@ -1375,7 +1382,52 @@ export async function handleChatCore({
               // best-effort live event — never fail the request
             }
           },
-        });
+        };
+        const runCompression = (input: Record<string, unknown>) =>
+          applyCompressionAsync(input, mode, compressionOptions);
+        let result: CompressionResult;
+        if (compressionConfig.liveZone?.enabled === true) {
+          const { applyLiveZoneCompression } = await import("../services/compression/liveZone.ts");
+          const explicitSessionId =
+            clientRawRequest?.headers && typeof clientRawRequest.headers.get === "function"
+              ? clientRawRequest.headers.get("x-omniroute-session-id")
+              : getHeaderValueCaseInsensitive(
+                  clientRawRequest?.headers ?? null,
+                  "x-omniroute-session-id"
+                );
+          const liveZoneSessionId =
+            explicitSessionId ||
+            generateSessionId(compressionInputBody, {
+              provider,
+              connectionId: getCurrentConnectionId() ?? undefined,
+            }) ||
+            undefined;
+          result = await applyLiveZoneCompression(
+            compressionInputBody,
+            {
+              principalId: compressionPrincipalId,
+              sessionId: liveZoneSessionId,
+              variant: {
+                mode,
+                provider,
+                model: effectiveModel,
+                config: compressionConfig,
+                cachePrefix: {
+                  system: compressionInputBody.system,
+                  systemInstruction: compressionInputBody.systemInstruction,
+                  system_instruction: compressionInputBody.system_instruction,
+                  instructions: compressionInputBody.instructions,
+                  tools: compressionInputBody.tools,
+                  toolChoice: compressionInputBody.tool_choice,
+                },
+              },
+              ttlMinutes: compressionConfig.cacheMinutes,
+            },
+            runCompression
+          );
+        } else {
+          result = await runCompression(compressionInputBody);
+        }
         if (result.stats) {
           const annotation = formatCompressionAnnotation(result.stats);
           if (annotation) {
@@ -3384,7 +3436,13 @@ export async function handleChatCore({
           // otherwise degenerate into a 429 rate-limit storm). Connection stays
           // active since only the specific model is unavailable. (#6827)
           const notFoundCooldownMs = COOLDOWN_MS.notFound;
-          lockModel(provider, errorConnectionId, currentModel, "model_not_found", notFoundCooldownMs);
+          lockModel(
+            provider,
+            errorConnectionId,
+            currentModel,
+            "model_not_found",
+            notFoundCooldownMs
+          );
           console.warn(
             `[provider] Node ${errorConnectionId} model not found (${statusCode}) for ${currentModel} - locking model for ${Math.ceil(notFoundCooldownMs / 1000)}s (connection stays active)`
           );
