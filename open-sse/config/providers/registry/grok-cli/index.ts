@@ -6,40 +6,28 @@ export const grok_cliProvider: RegistryEntry = {
   alias: "gc",
   format: "openai",
   executor: "grok-cli",
-  baseUrl: "https://cli-chat-proxy.grok.com/v1/chat/completions",
+  baseUrl: "https://cli-chat-proxy.grok.com/v1/responses",
   authType: "oauth",
   authHeader: "bearer",
   passthroughModels: true,
   models: [
     {
-      id: "grok-build",
-      name: "Grok Build",
-      contextLength: 256000,
-      // cli-chat-proxy rejects reasoning_effort/reasoning outright (see grok-cli.ts
-      // executor's transformRequest, which strips them unconditionally for this model).
-      supportsReasoning: false,
-      unsupportedParams: [
-        "presencePenalty",
-        "frequencyPenalty",
-        "logprobs",
-        "topLogprobs",
-        "reasoningEffort",
-      ],
+      id: "grok-4.5",
+      name: "Grok 4.5",
+      contextLength: 500000,
+      supportsReasoning: true,
+      toolCalling: true,
+      targetFormat: "openai-responses",
+      unsupportedParams: ["presencePenalty", "frequencyPenalty", "logprobs", "topLogprobs"],
     },
     {
       id: "grok-composer-2.5-fast",
-      name: "Grok Composer 2.5 Fast",
+      name: "Composer 2.5(Grok)",
       contextLength: 200000,
-      // cli-chat-proxy rejects reasoning_effort/reasoning outright (see grok-cli.ts
-      // executor's transformRequest, which strips them unconditionally for this model).
       supportsReasoning: false,
-      unsupportedParams: [
-        "presencePenalty",
-        "frequencyPenalty",
-        "logprobs",
-        "topLogprobs",
-        "reasoningEffort",
-      ],
+      toolCalling: true,
+      targetFormat: "openai-responses",
+      unsupportedParams: ["presencePenalty", "frequencyPenalty", "logprobs", "topLogprobs"],
     },
   ],
   oauth: {

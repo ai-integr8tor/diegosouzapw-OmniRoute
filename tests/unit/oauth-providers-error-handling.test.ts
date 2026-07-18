@@ -221,12 +221,12 @@ test("P3: refreshClaudeOAuthToken normalizes invalid_grant to unrecoverable_refr
   );
 });
 
-// ─── P3: Windsurf Firebase errors ────────────────────────────────────────────
+// ─── P3: Devin Firebase errors ───────────────────────────────────────────────
 
-test("P3: refreshWindsurfToken parses Firebase USER_DISABLED/TOKEN_EXPIRED errors", async () => {
+test("P3: refreshDevinToken parses Firebase USER_DISABLED/TOKEN_EXPIRED errors", async () => {
   const src = await read("open-sse/services/tokenRefresh.ts");
-  const fnMatch = src.match(/export\s+async\s+function\s+refreshWindsurfToken\([\s\S]+?\n\}/);
-  assert.ok(fnMatch, "refreshWindsurfToken function body not found");
+  const fnMatch = src.match(/export\s+async\s+function\s+refreshDevinToken\([\s\S]+?\n\}/);
+  assert.ok(fnMatch, "refreshDevinToken function body not found");
   assert.match(
     fnMatch[0],
     /USER_DISABLED|TOKEN_EXPIRED|INVALID_REFRESH_TOKEN/,

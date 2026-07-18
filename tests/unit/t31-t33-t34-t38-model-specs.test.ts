@@ -15,11 +15,12 @@ const {
   capThinkingBudget,
 } = await import("../../src/shared/constants/modelSpecs.ts");
 
-test("T31: antigravity static catalog exposes client-visible Gemini preview IDs", () => {
-  // Antigravity exposes preview aliases to clients even though the upstream
-  // still accepts its internal model identifiers.
+test("T31: antigravity static catalog exposes current client-visible model IDs", () => {
+  // The retired public preview ID remains available through alias resolution,
+  // but only live-callable IDs belong in the static provider catalog.
   const staticIds = (getStaticModelsForProvider("antigravity") || []).map((m) => m.id);
-  assert.ok(staticIds.includes("gemini-3-pro-preview"));
+  assert.ok(!staticIds.includes("gemini-3-pro-preview"));
+  assert.ok(staticIds.includes("gemini-pro-agent"));
   // #3303 (agy parity, discussion #3184): the Gemini + Claude budget tiers ARE
   // client-visible on the Antigravity OAuth backend (Claude was never removed).
   assert.ok(staticIds.includes("gemini-3.1-pro-low"));

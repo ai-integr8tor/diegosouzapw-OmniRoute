@@ -1,5 +1,5 @@
 import { getAntigravityModelsDiscoveryUrls } from "@omniroute/open-sse/config/antigravityUpstream.ts";
-import { getAntigravityHeaders } from "@omniroute/open-sse/services/antigravityHeaders.ts";
+import { getAntigravityContentHeaders } from "@omniroute/open-sse/services/antigravityHeaders.ts";
 import { parseGeminiModelsList } from "@/lib/providerModels/geminiModelsParser";
 import { filterClinepassModels } from "@omniroute/open-sse/services/clinepassModels.ts";
 import { normalizeOpenAiLikeModelsResponse } from "./normalizers";
@@ -127,7 +127,7 @@ export const PROVIDER_MODELS_CONFIG: Record<string, ProviderModelsConfigEntry> =
   antigravity: {
     url: getAntigravityModelsDiscoveryUrls()[0],
     method: "POST",
-    headers: getAntigravityHeaders("models"),
+    headers: getAntigravityContentHeaders("ide"),
     authHeader: "Authorization",
     authPrefix: "Bearer ",
     body: {},

@@ -26,14 +26,13 @@ import { AzureOpenAIExecutor } from "./azure-openai.ts";
 import { CommandCodeExecutor } from "./commandCode.ts";
 import { GitlabExecutor } from "./gitlab.ts";
 import { NlpCloudExecutor } from "./nlpcloud.ts";
-import { WindsurfExecutor } from "./windsurf.ts";
+import { DevinDesktopExecutor } from "./devin-desktop.ts";
 import { ZedHostedExecutor } from "./zed-hosted.ts";
 import { DevinCliExecutor } from "./devin-cli.ts";
 import { AuggieExecutor } from "./auggie.ts";
 import { DeepSeekWebExecutor } from "./deepseek-web.ts";
 import { DeepSeekWebWithAutoRefreshExecutor } from "./deepseek-web-with-auto-refresh.ts";
 import { AdaptaWebExecutor } from "./adapta-web.ts";
-import { ClaudeWebWithAutoRefresh } from "./claude-web-with-auto-refresh.ts";
 import { CopilotWebExecutor } from "./copilot-web.ts";
 import { CopilotM365WebExecutor } from "./copilot-m365-web.ts";
 import { MicrosoftDesignerWebExecutor } from "./microsoft-designer-web.ts";
@@ -102,8 +101,8 @@ const executors = {
   "perplexity-web": new PerplexityWebExecutor(),
   "pplx-web": new PerplexityWebExecutor(), // Alias
   "grok-web": new GrokWebExecutor(),
-  "claude-web": new ClaudeWebWithAutoRefresh(),
-  "cw-web": new ClaudeWebWithAutoRefresh(), // Alias
+  "claude-web": new ClaudeWebExecutor(),
+  "cw-web": new ClaudeWebExecutor(), // Alias
   "gemini-web": new GeminiWebExecutor(),
   gweb: new GeminiWebExecutor(), // Alias
   "gemini-business": new GeminiBusinessExecutor(),
@@ -114,8 +113,7 @@ const executors = {
   "bb-web": new BlackboxWebExecutor(), // Alias
   "muse-spark-web": new MuseSparkWebExecutor(),
   "ms-web": new MuseSparkWebExecutor(), // Alias
-  windsurf: new WindsurfExecutor(),
-  ws: new WindsurfExecutor(), // Alias
+  "devin-desktop": new DevinDesktopExecutor(),
   "zed-hosted": new ZedHostedExecutor(),
   "devin-cli": new DevinCliExecutor(),
   devin: new DevinCliExecutor(), // Alias
@@ -236,7 +234,7 @@ export { AzureOpenAIExecutor } from "./azure-openai.ts";
 export { CommandCodeExecutor } from "./commandCode.ts";
 export { GitlabExecutor } from "./gitlab.ts";
 export { NlpCloudExecutor } from "./nlpcloud.ts";
-export { WindsurfExecutor } from "./windsurf.ts";
+export { DevinDesktopExecutor } from "./devin-desktop.ts";
 export { ZedHostedExecutor } from "./zed-hosted.ts";
 export { DevinCliExecutor } from "./devin-cli.ts";
 export { AuggieExecutor } from "./auggie.ts";

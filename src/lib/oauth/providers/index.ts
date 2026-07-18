@@ -24,7 +24,7 @@ import { cursor } from "./cursor";
 import { trae } from "./trae";
 import { kilocode } from "./kilocode";
 import { cline } from "./cline";
-import { windsurf } from "./windsurf";
+import { devinDesktop } from "./devin-desktop";
 import { grokCli } from "./grok-cli";
 import { codebuddyCn } from "./codebuddy-cn";
 import { zed } from "./zed";
@@ -50,9 +50,9 @@ export const PROVIDERS = {
   // type) — it is a separate catalog entry advertising the cline-pass/* (ClinePass
   // subscription) models. See registry/clinepass/index.ts.
   clinepass: cline,
-  windsurf,
-  // devin-cli shares the same token format as windsurf (WINDSURF_API_KEY / devin auth login)
-  "devin-cli": windsurf,
+  "devin-desktop": devinDesktop,
+  // Devin CLI shares the same imported token format and upstream credential contract.
+  "devin-cli": devinDesktop,
   "grok-cli": grokCli,
   "codebuddy-cn": codebuddyCn,
   // Zed IDE credential bridge — uses keychain import, not standard OAuth

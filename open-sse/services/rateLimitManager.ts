@@ -569,10 +569,11 @@ export async function withRateLimit(provider, connectionId, model, fn, signal = 
       const abortPromise = new Promise<never>((_, reject) => {
         const onAbort = () => {
           const reason = signal.reason;
-          const err =
-            reason instanceof Error
-              ? reason
-              : new Error(typeof reason === "string" ? reason : "The operation was aborted");
+          if (reason instanceof Error) {
+            reject(reason);
+            return;
+          }
+          const err = new Error(typeof reason === "string" ? reason : "The operation was aborted");
           err.name = "AbortError";
           reject(err);
         };

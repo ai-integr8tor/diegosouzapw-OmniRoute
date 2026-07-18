@@ -4227,7 +4227,7 @@
     "antigravityClientProfileLabel": "__MISSING__:Client profile",
     "antigravityClientProfileHint": "__MISSING__:Choose which Antigravity client identity OmniRoute presents to the API.",
     "antigravityClientProfileIde": "__MISSING__:IDE",
-    "antigravityClientProfileHarness": "__MISSING__:Harness / CLI",
+    "antigravityClientProfileCli": "__MISSING__:CLI",
     "codexFastTierActiveChip": "__MISSING__:Codex Fast tier is active",
     "tierFast": "__MISSING__:Fast",
     "antigravityProjectIdLabel": "Google ક્લાઉડ પ્રોજેક્ટ ID",

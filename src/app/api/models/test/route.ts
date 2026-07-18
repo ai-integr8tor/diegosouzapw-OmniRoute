@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
-import { runSingleModelTest } from "@/lib/api/modelTestRunner";
+import { DEFAULT_MODEL_TEST_TIMEOUT_MS, runSingleModelTest } from "@/lib/api/modelTestRunner";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
 import { getSettings } from "@/lib/db/settings";
 import { isFreeModel, providerHasFreeModels } from "@/shared/utils/freeModels";
@@ -11,8 +11,6 @@ const testModelSchema = z.object({
   modelId: z.string().min(1),
   connectionId: z.string().min(1).optional(),
 });
-
-const SINGLE_TEST_TIMEOUT_MS = 20_000;
 
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
@@ -67,7 +65,7 @@ export async function POST(request: Request) {
       providerId,
       modelId,
       ...(connectionId ? { connectionId } : {}),
-      timeoutMs: SINGLE_TEST_TIMEOUT_MS,
+      timeoutMs: DEFAULT_MODEL_TEST_TIMEOUT_MS,
     });
 
     if (result.status === "ok") {
