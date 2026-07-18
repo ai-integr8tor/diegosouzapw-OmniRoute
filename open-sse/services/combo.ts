@@ -67,6 +67,7 @@ import { estimateTokens } from "./contextManager.ts";
 import { getSessionConnection } from "./sessionManager.ts";
 import {
   applySessionStickiness,
+  normalizeStickinessMessages,
   recordStickyBinding,
   clearStickyBinding,
   peekStickyConnectionId,
@@ -1244,7 +1245,9 @@ export async function handleComboChat({
     ? ({ targets: orderedTargets, messageHash: null, stuck: false } as const)
     : await applySessionStickiness(
         orderedTargets,
-        body.messages as Array<{ role?: string; content?: unknown }>
+        // #7270: normalize both wire shapes (.messages / Responses-API .input) so the
+        // stickiness key is derivable on the /v1/responses surface, not just Chat Completions.
+        normalizeStickinessMessages(body as { messages?: unknown; input?: unknown })
       );
   orderedTargets = _sticky.targets;
   orderedTargets = orderTargetsByEvalScores(orderedTargets, config.evalRouting, log);
@@ -2668,7 +2671,9 @@ async function handleRoundRobinCombo({
     ? ({ targets: filteredTargets, messageHash: null, stuck: false } as const)
     : await applySessionStickiness(
         filteredTargets,
-        body?.messages as Array<{ role?: string; content?: unknown }>
+        // #7270: normalize both wire shapes (.messages / Responses-API .input) so RR
+        // stickiness engages on the /v1/responses surface, not just Chat Completions.
+        normalizeStickinessMessages(body as { messages?: unknown; input?: unknown })
       );
   let rrStartIndex = startIndex;
   if (_rrSessionSticky.stuck) {
