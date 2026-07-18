@@ -26,6 +26,7 @@ import { useTranslations } from "next-intl";
 import { useNotificationStore } from "@/store/notificationStore";
 import { isClaudeCodeCompatibleProvider } from "@/shared/constants/providers";
 import type { ConnectionRowConnection } from "../components/ConnectionRow";
+import { connectionBelongsToProviderPage } from "../../providerPageUtils";
 import { normalizeCodexLimitPolicy } from "../providerPageHelpers";
 import { useReorderByAvailability } from "./useReorderByAvailability";
 import {
@@ -193,8 +194,8 @@ export function useProviderConnections(
       const connectionsData = await connectionsRes.json();
       const nodesData = await nodesRes.json();
       if (connectionsRes.ok) {
-        const filtered = (connectionsData.connections || []).filter(
-          (c: any) => c.provider === providerId
+        const filtered = (connectionsData.connections || []).filter((c: any) =>
+          connectionBelongsToProviderPage(c.provider, providerId)
         );
         setConnections(filtered);
       }

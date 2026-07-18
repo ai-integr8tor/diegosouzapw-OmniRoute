@@ -28,6 +28,7 @@ import { getCodexPlanLabel } from "../codexPlanLabel";
 
 export interface ConnectionRowConnection {
   id?: string;
+  provider?: string;
   name?: string;
   email?: string;
   displayName?: string;
