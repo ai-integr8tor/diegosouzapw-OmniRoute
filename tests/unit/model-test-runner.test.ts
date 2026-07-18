@@ -1,9 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createProviderConnection } from "@/lib/db/providers";
 import {
   parseRetryAfterHeader,
   detectTestKind,
   extractProviderErrorMessage,
+  extractModelTestResponseText,
+  runSingleModelTest,
   resolveModelTestTimeoutMs,
 } from "@/lib/api/modelTestRunner.ts";
 
@@ -116,4 +119,87 @@ test("resolveModelTestTimeoutMs extends Dola Pro model checks", () => {
 test("resolveModelTestTimeoutMs leaves ordinary models unchanged", () => {
   assert.equal(resolveModelTestTimeoutMs("doubao-web", "dola-speed", 10_000), 10_000);
   assert.equal(resolveModelTestTimeoutMs("openai", "dola-pro", 10_000), 10_000);
+});
+
+test("extractModelTestResponseText accepts JSON when a streaming probe is ignored upstream", async () => {
+  const response = new Response(
+    JSON.stringify({ choices: [{ message: { role: "assistant", content: "OK" } }] }),
+    { headers: { "content-type": "Application/JSON; charset=utf-8" } }
+  );
+
+  assert.deepEqual(await extractModelTestResponseText(response, true), { text: "OK" });
+});
+
+test("extractModelTestResponseText extracts content from SSE responses", async () => {
+  const response = new Response(
+    'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n',
+    {
+      headers: { "content-type": "text/event-stream" },
+    }
+  );
+
+  assert.deepEqual(await extractModelTestResponseText(response, true), { text: "OK" });
+});
+
+test("extractModelTestResponseText preserves SSE error status for transient classification", async () => {
+  const response = new Response(
+    'data: {"error":{"message":"Rate limit exceeded","status":429}}\n\n',
+    { headers: { "content-type": "text/event-stream" } }
+  );
+
+  assert.deepEqual(await extractModelTestResponseText(response, true), {
+    text: "",
+    error: { message: "Rate limit exceeded", statusCode: 429 },
+  });
+});
+
+test("runSingleModelTest preserves slow timeout after chatCore converts AbortError to a Response", async () => {
+  const connection = await createProviderConnection({
+    provider: "openai",
+    authType: "apikey",
+    name: "model-test-timeout-regression",
+    apiKey: "sk-model-test-timeout-regression",
+    isActive: true,
+    testStatus: "active",
+  });
+  const originalFetch = globalThis.fetch;
+  let upstreamSignal: AbortSignal | null = null;
+  let upstreamCalled = false;
+
+  globalThis.fetch = async (_input, init = {}) => {
+    upstreamCalled = true;
+    upstreamSignal = (init.signal as AbortSignal | null | undefined) ?? null;
+    return new Promise<Response>((_resolve, reject) => {
+      let fallbackTimer: ReturnType<typeof setTimeout>;
+      const rejectOnAbort = () => {
+        clearTimeout(fallbackTimer);
+        reject(new DOMException("The operation was aborted", "AbortError"));
+      };
+      fallbackTimer = setTimeout(rejectOnAbort, 1_500);
+
+      if (upstreamSignal?.aborted) {
+        rejectOnAbort();
+      } else {
+        upstreamSignal?.addEventListener("abort", rejectOnAbort, { once: true });
+      }
+    });
+  };
+
+  try {
+    const result = await runSingleModelTest({
+      providerId: "openai",
+      modelId: "gpt-4o",
+      connectionId: String(connection.id),
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(upstreamCalled, true);
+    assert.ok(upstreamSignal, "the chat completion request should receive an abort signal");
+    assert.equal(result.status, "slow");
+    assert.equal(result.httpStatus, 504);
+    assert.equal(result.isTimeout, true);
+    assert.equal(result.error, "No model output within 1s");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
