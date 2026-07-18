@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { resolveChatRequestBody } from "./requestBody";
 import { normalizeReasoningRequest } from "@/shared/reasoning/effortStandardization";
-import { resolveRoutingModel } from "./resolveRoutingModel";
+import { resolveRoutingModel, RoutingModelOps } from "./resolveRoutingModel";
 import {
   getProviderCredentialsWithQuotaPreflight,
   markAccountUnavailable,
@@ -368,6 +368,8 @@ export async function handleChat(
   // resolveRoutingModel). The resolved model still passes through
   // enforceApiKeyPolicy below, so it cannot bypass per-key allowlists.
   let modelStr = resolveRoutingModel(request, body);
+  // Align body.model with the routing model immediately (see applyRoutingModelAlignment).
+  body = RoutingModelOps.align(body, modelStr, log);
 
   // Count messages (support both messages[] and input[] formats)
   const msgCount = body.messages?.length || body.input?.length || 0;
@@ -470,24 +472,19 @@ export async function handleChat(
       preCallGuardrails.message || "Request rejected: suspicious content detected"
     );
   }
+  // Snapshot model BEFORE the guardrail payload (see reconcileGuardrailReroute).
+  const modelBeforeGuardrails =
+    typeof body?.model === "string" && body.model.length > 0 ? body.model : modelStr;
   body = preCallGuardrails.payload;
-  if (body?.model && typeof body.model === "string" && body.model !== modelStr) {
-    const rerouteModel = body.model;
-    // A guardrail (e.g. Vision Bridge auto-reroute) can swap body.model AFTER
-    // enforceApiKeyPolicy already validated modelStr's allowlist/budget above.
-    // Re-check the new target against the same per-key allowlist so a
-    // policy-restricted key cannot be silently routed to an unchecked model.
-    const rerouteAllowed = await isModelAllowedForKey(apiKey, rerouteModel);
-    if (!rerouteAllowed) {
-      log.warn(
-        "POLICY",
-        `Guardrail reroute to "${rerouteModel}" rejected by API key policy (key=${apiKeyInfo?.id || "unknown"}); keeping original model "${modelStr}"`
-      );
-      body = { ...body, model: modelStr };
-    } else {
-      modelStr = rerouteModel;
-    }
-  }
+  ({ body, modelStr } = await RoutingModelOps.reconcileGuardrailReroute({
+    body,
+    modelBeforeGuardrails,
+    modelStr,
+    apiKey,
+    apiKeyId: apiKeyInfo?.id,
+    isModelAllowedForKey,
+    log,
+  }));
   telemetry.endPhase();
 
   // T08: per-key active session limit (0 = unlimited).
@@ -528,9 +525,13 @@ export async function handleChat(
 
   // Apply hook mutations
   body = hookCtx.body as any;
-  if (hookCtx.model && hookCtx.model !== modelStr) {
-    modelStr = hookCtx.model;
-  }
+  ({ body, modelStr } = RoutingModelOps.reconcileModelOverride({
+    body,
+    modelStr,
+    overrideModel: hookCtx.model,
+    logTag: "Hook model override",
+    log,
+  }));
 
   // Short-circuit if a hook returned a direct response
   if (hookResponse) {
