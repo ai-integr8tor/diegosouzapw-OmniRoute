@@ -1,4 +1,5 @@
 import { buildComboHealthAutopilotReport } from "@/lib/monitoring/comboHealthAutopilot";
+import { getCombos } from "@/lib/db/combos";
 import { getProviderConnections } from "@/lib/db/providers";
 import { buildComboForecastResponse } from "@/lib/usage/comboForecast";
 import { buildComboHealthResponse } from "@/lib/usage/comboHealth";
@@ -14,7 +15,9 @@ import {
   type ProviderCandidate,
   type ScoringFactors,
   type ScoringWeights,
+  validateWeights,
 } from "@omniroute/open-sse/services/autoCombo/scoring.ts";
+import { getModePack } from "@omniroute/open-sse/services/autoCombo/modePacks.ts";
 import { getTaskFitness } from "@omniroute/open-sse/services/autoCombo/taskFitness.ts";
 import type {
   ComboAutopilotCombo,
@@ -32,6 +35,7 @@ import type {
   ComboScoringInspectorResponse,
   ComboScoringInspectorSource,
   ComboScoringInspectorTarget,
+  ComboScoringInspectorWeightSource,
   UtilizationTimeRange,
 } from "@/shared/types/utilization";
 
@@ -58,6 +62,13 @@ type CandidateContext = {
   notes: Partial<Record<ComboScoringInspectorFactorKey, string>>;
 };
 
+type InspectorWeights = {
+  weights: ScoringWeights;
+  source: ComboScoringInspectorWeightSource;
+  modePack: string | null;
+  warning?: string;
+};
+
 const FACTOR_KEYS: ComboScoringInspectorFactorKey[] = [
   "quota",
   "health",
@@ -79,6 +90,61 @@ function roundNumber(value: number, digits = 4): number {
 
 function normalizeTaskType(taskType: string | undefined): string {
   return typeof taskType === "string" && taskType.trim().length > 0 ? taskType.trim() : "default";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolveInspectorWeights(combo: ComboRecord | undefined): InspectorWeights {
+  const config = isRecord(combo?.autoConfig)
+    ? combo.autoConfig
+    : isRecord(combo?.config) && isRecord(combo.config.auto)
+      ? combo.config.auto
+      : isRecord(combo?.config)
+        ? combo.config
+        : {};
+  const modePack = typeof config.modePack === "string" ? config.modePack : null;
+  const resolvedModePack = modePack ? getModePack(modePack) : undefined;
+  if (resolvedModePack) {
+    return { weights: resolvedModePack, source: "mode_pack", modePack };
+  }
+
+  const explicitWeights = isRecord(config.weights) ? (config.weights as ScoringWeights) : undefined;
+  if (explicitWeights && validateWeights(explicitWeights)) {
+    return { weights: explicitWeights, source: "explicit", modePack: null };
+  }
+
+  return {
+    weights: DEFAULT_WEIGHTS,
+    source: "default",
+    modePack: null,
+    warning:
+      modePack || explicitWeights
+        ? "Configured auto weights are invalid or unavailable; default weights were used."
+        : undefined,
+  };
+}
+
+async function resolveConfiguredCombos(
+  options: ComboScoringInspectorOptions
+): Promise<ComboRecord[]> {
+  // #7087: `options.combos`, when supplied, must always win — regardless of the
+  // health/forecast/autopilot short-circuit below. The dashboard integration
+  // (comboHealthDashboard.ts::buildComboHealthDashboardResponse) always calls this
+  // with `combos` AND `healthResponse`/`forecastResponse`/`autopilotReport` set
+  // together (it already fetched everything once upstream to avoid redundant work),
+  // which used to hit the short-circuit FIRST and silently discard the caller's
+  // `combos` — so `combosById`/`combosByName` (used by resolveInspectorWeights() to
+  // report the combo's real configured modePack/weights) came back empty and every
+  // combo's weightSource fell back to "default" through that call path.
+  if (options.combos) return options.combos;
+  const alreadyHaveHealthSignals =
+    options.healthResponse &&
+    options.forecastResponse &&
+    (options.skipAutopilot || options.autopilotReport);
+  if (alreadyHaveHealthSignals) return [];
+  return (await getCombos()) as ComboRecord[];
 }
 
 function buildEmptyAutopilotReport(options: ComboScoringInspectorOptions): ComboAutopilotReport {
@@ -260,9 +326,11 @@ async function buildInspectorCombo(
   forecastTargets: Map<string, ComboForecastTarget>,
   autopilotCombo: ComboAutopilotCombo | undefined,
   taskType: string,
-  weights: ScoringWeights
+  inspectorWeights: InspectorWeights
 ): Promise<ComboScoringInspectorCombo> {
   const warnings: string[] = [];
+  const { weights } = inspectorWeights;
+  if (inspectorWeights.warning) warnings.push(inspectorWeights.warning);
   const targets = combo.targetHealth ?? [];
   if (combo.strategy !== "auto") {
     warnings.push(
@@ -349,6 +417,8 @@ async function buildInspectorCombo(
     strategy: combo.strategy,
     taskType,
     weights: weights as Record<ComboScoringInspectorFactorKey, number>,
+    weightSource: inspectorWeights.source,
+    modePack: inspectorWeights.modePack,
     selectedExecutionKey: inspectorTargets[0]?.executionKey ?? null,
     targets: inspectorTargets,
     warnings,
@@ -359,14 +429,14 @@ export async function buildComboScoringInspectorResponse(
   options: ComboScoringInspectorOptions
 ): Promise<ComboScoringInspectorResponse> {
   const taskType = normalizeTaskType(options.taskType);
-  const weights = DEFAULT_WEIGHTS;
+  const configuredCombos = await resolveConfiguredCombos(options);
   const [health, forecast] = await Promise.all([
     options.healthResponse ??
       buildComboHealthResponse({
         range: options.range,
         comboId: options.comboId,
         now: options.now,
-        combos: options.combos,
+        combos: configuredCombos,
       }),
     options.forecastResponse ??
       buildComboForecastResponse({
@@ -374,7 +444,7 @@ export async function buildComboScoringInspectorResponse(
         horizon: options.horizon,
         comboId: options.comboId,
         now: options.now,
-        combos: options.combos,
+        combos: configuredCombos,
       }),
   ]);
   const autopilot =
@@ -388,13 +458,19 @@ export async function buildComboScoringInspectorResponse(
           includeHealthy: true,
           includeActions: false,
           now: options.now,
-          combos: options.combos,
+          combos: configuredCombos,
           healthResponse: health,
           forecastResponse: forecast,
         }));
 
   const forecastByComboId = new Map(forecast.combos.map((combo) => [combo.comboId, combo]));
   const autopilotByComboId = new Map(autopilot.combos.map((combo) => [combo.comboId, combo]));
+  const combosById = new Map(
+    configuredCombos.flatMap((combo) => (combo.id ? [[combo.id, combo]] : []))
+  );
+  const combosByName = new Map(
+    configuredCombos.flatMap((combo) => (combo.name ? [[combo.name, combo]] : []))
+  );
 
   return {
     asOf: new Date(options.now ?? Date.now()).toISOString(),
@@ -408,7 +484,9 @@ export async function buildComboScoringInspectorResponse(
           targetForecastMap(forecastByComboId.get(combo.comboId)?.targets ?? []),
           autopilotByComboId.get(combo.comboId),
           taskType,
-          weights
+          resolveInspectorWeights(
+            combosById.get(combo.comboId) ?? combosByName.get(combo.comboName)
+          )
         )
       )
     ),
